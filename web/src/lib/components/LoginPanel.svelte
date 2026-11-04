@@ -136,6 +136,9 @@
     max-width: 340px;
     display: flex;
     justify-content: center;
+    /* Google's button is a light-scheme iframe. On our dark-scheme page the browser would paint
+       it an opaque white backdrop; matching its scheme keeps the iframe transparent. */
+    color-scheme: light;
   }
   .skeleton {
     position: absolute;

@@ -36,7 +36,7 @@ The VM's `/opt/glint/server/.env` holds the secrets and is never overwritten by 
 **Useful commands on the VM**
 ```bash
 sudo docker logs -f glint-api                    # live logs
-sudo docker restart glint-api                    # restart (after editing .env)
+cd /opt/glint/deploy && sudo docker compose up -d --force-recreate   # apply .env edits
 curl -s http://127.0.0.1:18400/health            # local health check
 sudo vibedb project show glint                   # DB size, connections; backups in the VibeDB dashboard
 ```
@@ -50,8 +50,10 @@ sudo vibedb project show glint                   # DB size, connections; backups
    - `PUBLIC_SUPPORT_EMAIL=<support address>`
    - leave `PUBLIC_DEV_LOGIN` unset
 3. Domain: add `glint.strophic.in` (Cloudflare: CNAME `glint` → `cname.vercel-dns.com`, DNS only).
-4. If you use a different domain, update `WEB_URL` and `CORS_ORIGINS` in the VM's `.env` and
-   `docker restart glint-api`, then rebuild the desktop app with the new `GLINT_WEB_URL`.
+4. `PUBLIC_*` variables are baked in at build time: after changing one, redeploy.
+5. If you use a different domain, update `WEB_URL` and `CORS_ORIGINS` in the VM's `.env` and recreate
+   the container (`docker restart` does not reload `.env`), then rebuild the desktop app with the new
+   `GLINT_WEB_URL`.
 
 ## Google sign-in
 Google Cloud Console → APIs & Services:
