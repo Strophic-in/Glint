@@ -1,5 +1,6 @@
 <script lang="ts">
   import { BRAND, SUPPORT_EMAIL } from '$lib/config';
+  import { BUSINESS, OPERATOR, POLICY_UPDATED } from '$lib/legal';
 </script>
 
 <svelte:head>
@@ -8,11 +9,13 @@
 
 <article class="container prose page">
   <h1>Terms of Service</h1>
-  <p class="muted">Last updated: 4 November 2026</p>
+  <p class="muted">Last updated: {POLICY_UPDATED}</p>
 
   <p>
-    These terms govern your use of {BRAND}, provided by [Your Company Legal Name], [Registered Address]
-    ("we", "us"). By creating an account or using the app you agree to them.
+    These terms govern your use of {BRAND}, provided by {OPERATOR}{#if BUSINESS.address},
+      {BUSINESS.address}{/if}{#if BUSINESS.cityStatePin}, {BUSINESS.cityStatePin}{/if}
+    ("we", "us"). By creating an account or using the app you agree to them. Our
+    <a class="link" href="/privacy">Privacy Policy</a> explains how we handle your personal data.
   </p>
 
   <h2>1. The service</h2>
@@ -79,7 +82,11 @@
   </p>
 
   <h2>9. Governing law</h2>
-  <p>These terms are governed by the laws of India. Courts at [City], India have exclusive jurisdiction.</p>
+  <p>
+    These terms are governed by the laws of India.
+    {#if BUSINESS.courtsCity}Courts at {BUSINESS.courtsCity}, India have exclusive jurisdiction.{:else}Courts in
+      India have exclusive jurisdiction.{/if}
+  </p>
 
   <h2>10. Changes</h2>
   <p>

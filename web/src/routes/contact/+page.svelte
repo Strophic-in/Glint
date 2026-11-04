@@ -1,5 +1,6 @@
 <script lang="ts">
   import { BRAND, SUPPORT_EMAIL } from '$lib/config';
+  import { BUSINESS, OPERATOR } from '$lib/legal';
 </script>
 
 <svelte:head>
@@ -17,19 +18,25 @@
       <h2>Support & billing</h2>
       <p class="muted">Questions about the app, your hours, payments or refunds.</p>
       <a class="btn btn-primary" href="mailto:{SUPPORT_EMAIL}">{SUPPORT_EMAIL}</a>
+      {#if BUSINESS.phone}
+        <p class="small phone">
+          Phone: <a class="link" href="tel:{BUSINESS.phone.replace(/\s+/g, '')}">{BUSINESS.phone}</a>
+        </p>
+      {/if}
     </div>
     <div class="card item">
       <h2>Registered office</h2>
       <p>
-        [Your Company Legal Name]<br />
-        [Registered Address]<br />
-        [City, State, PIN], India
+        {OPERATOR}
+        {#if BUSINESS.address}<br />{BUSINESS.address}{/if}
+        {#if BUSINESS.cityStatePin}<br />{BUSINESS.cityStatePin}{/if}
+        <br />India
       </p>
-      <p class="muted small">GSTIN: [Your GSTIN]</p>
+      {#if BUSINESS.gstin}<p class="muted small">GSTIN: {BUSINESS.gstin}</p>{/if}
     </div>
     <div class="card item">
       <h2>Grievance officer</h2>
-      <p>[Grievance Officer Name]</p>
+      {#if BUSINESS.grievanceOfficer}<p>{BUSINESS.grievanceOfficer}</p>{/if}
       <p class="muted small">
         For privacy or data requests, email <a class="link" href="mailto:{SUPPORT_EMAIL}">{SUPPORT_EMAIL}</a> with
         "Grievance" in the subject.
@@ -71,5 +78,8 @@
   }
   .small {
     font-size: 14px;
+  }
+  .phone {
+    margin-top: 14px;
   }
 </style>

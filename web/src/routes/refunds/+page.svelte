@@ -1,5 +1,6 @@
 <script lang="ts">
   import { BRAND, SUPPORT_EMAIL } from '$lib/config';
+  import { BUSINESS, OPERATOR, POLICY_UPDATED } from '$lib/legal';
 </script>
 
 <svelte:head>
@@ -8,11 +9,19 @@
 
 <article class="container prose page">
   <h1>Refund & Cancellation Policy</h1>
-  <p class="muted">Last updated: 4 November 2026</p>
+  <p class="muted">Last updated: {POLICY_UPDATED}</p>
 
   <p>
     {BRAND} sells prepaid hours, not subscriptions. There is nothing to cancel and you are never charged
     automatically.
+  </p>
+
+  <h2>Delivery</h2>
+  <p>
+    {BRAND} is a digital service; nothing is shipped. Hours are added to your account as soon as your payment is
+    confirmed, usually within a minute, and you can use them straight away in the {BRAND} Windows app, downloadable
+    from our website. If hours don't appear within 30 minutes of a successful payment, email us with your order ID
+    and we will credit them or refund you.
   </p>
 
   <h2>When you can get a refund</h2>
@@ -43,7 +52,9 @@
     original payment method via Cashfree and usually arrive within 5–7 business days.
   </p>
 
-  <p class="muted">[Your Company Legal Name] · [Registered Address]</p>
+  <p class="muted">
+    {OPERATOR}{#if BUSINESS.address} · {BUSINESS.address}{/if}{#if BUSINESS.cityStatePin}, {BUSINESS.cityStatePin}{/if}
+  </p>
 </article>
 
 <style>
