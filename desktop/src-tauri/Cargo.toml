@@ -1,0 +1,43 @@
+[package]
+name = "glint"
+version = "0.1.0"
+description = "Glint - real-time AI copilot"
+edition = "2021"
+
+[lib]
+name = "glint_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+anyhow = "1.0.104"
+base64 = "0.23.1"
+cpal = "0.18.2"
+futures-util = "0.3.34"
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+pdf-extract = "0.12.1"
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "stream", "native-tls", "http2"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-single-instance = "2"
+tokio = { version = "1.54.1", features = ["sync", "time", "macros", "rt"] }
+tokio-tungstenite = { version = "0.30.0", features = ["native-tls"] }
+windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Security_Cryptography", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }
+xcap = "0.9.8"
+zip = { version = "9.3.0", default-features = false, features = ["deflate"] }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true

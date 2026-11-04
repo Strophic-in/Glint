@@ -1,0 +1,21 @@
+# Glint API on the Oracle VM. nginx (host) terminates TLS and proxies to 127.0.0.1:18400.
+# Database: VibeDB project "glint" on the same host, reached through the Docker host gateway.
+#   cd /opt/glint/deploy && docker compose up -d --build
+services:
+  api:
+    build: ../server
+    image: glint-api:latest
+    container_name: glint-api
+    restart: unless-stopped
+    env_file: ../server/.env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "8787"
+    ports:
+      - "127.0.0.1:18400:8787"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options: { max-size: "10m", max-file: "3" }
