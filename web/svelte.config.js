@@ -19,7 +19,8 @@ const localAdapter = {
 const config = {
   preprocess: vitePreprocess(),
   kit: {
-    adapter: skipVercelPackaging ? localAdapter : vercel()
+    // Pinned so a newer default Node on Vercel's build image can't break the deploy.
+    adapter: skipVercelPackaging ? localAdapter : vercel({ runtime: 'nodejs24.x' })
   }
 };
 
