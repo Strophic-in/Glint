@@ -3,6 +3,7 @@
   import OverlayMock from '$lib/components/OverlayMock.svelte';
   import Pricing from '$lib/components/Pricing.svelte';
   import DownloadButton from '$lib/components/DownloadButton.svelte';
+  import InstallHelp from '$lib/components/InstallHelp.svelte';
   import { api, type PlansResponse } from '$lib/api';
   import { FALLBACK_PLANS } from '$lib/plans';
   import { BRAND } from '$lib/config';
@@ -91,6 +92,10 @@
       a: 'Windows 10 version 2004 or newer, and Windows 11. The installer is about 2.5 MB and uses Microsoft Edge WebView2, which is already on most PCs.'
     },
     {
+      q: 'Why does my browser or Windows warn me about the installer?',
+      a: `${BRAND} is new, so Chrome, Edge and Windows SmartScreen haven't seen many downloads of it yet and flag it as uncommon. It's a reputation check, not a detected threat. In Chrome, open Downloads (Ctrl+J) and choose Keep; in Edge choose Keep, then Keep anyway; on the blue "Windows protected your PC" screen click More info, then Run anyway.`
+    },
+    {
       q: 'Does it work with Zoom, Meet and Teams?',
       a: `Yes. ${BRAND} listens to your system audio, so it works with any app that plays sound — desktop clients and browser calls alike.`
     },
@@ -126,6 +131,7 @@
       <a class="btn btn-lg" href="/login?next=/dashboard">Start free — {formatDuration(plans.trial_seconds)}</a>
     </div>
     <p class="fine muted">Windows 10 2004+ / 11 · ~2.5 MB · No card needed</p>
+    <InstallHelp />
   </div>
 
   <div class="container mock-wrap">
@@ -297,6 +303,7 @@
         <a class="btn btn-lg" href="/#pricing">See pricing</a>
       </div>
       <p class="fine muted">Windows 10 2004+ / 11 · ~2.5 MB · Signed in with Google</p>
+      <InstallHelp />
     </div>
   </div>
 </section>

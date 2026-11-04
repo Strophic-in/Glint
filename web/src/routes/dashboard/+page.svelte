@@ -3,6 +3,7 @@
   import { onMount } from 'svelte';
   import Pricing from '$lib/components/Pricing.svelte';
   import DownloadButton from '$lib/components/DownloadButton.svelte';
+  import InstallHelp from '$lib/components/InstallHelp.svelte';
   import { session } from '$lib/session.svelte';
   import { toasts } from '$lib/toast.svelte';
   import { loadScript } from '$lib/script';
@@ -236,6 +237,7 @@
           <li>Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> to go live, <kbd>Ctrl</kbd> <kbd>Enter</kbd> to answer.</li>
         </ol>
         <DownloadButton size="md" primary={false} />
+        <InstallHelp align="left" />
       </article>
     </div>
   </section>
