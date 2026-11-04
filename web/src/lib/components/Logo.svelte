@@ -15,7 +15,7 @@
     <path d="M10.5 3.5Q11.8 12.2 20.5 13.5Q11.8 14.8 10.5 23.5Q9.2 14.8 0.5 13.5Q9.2 12.2 10.5 3.5Z" fill="url(#{id})" />
     <path d="M19.5 0.5Q19.9 3.6 23 4Q19.9 4.4 19.5 7.5Q19.1 4.4 16 4Q19.1 3.6 19.5 0.5Z" fill="url(#{id})" opacity="0.85" />
   </svg>
-  <span class="word">glint</span>
+  <span class="word">Glint</span>
 </span>
 
 <style>
