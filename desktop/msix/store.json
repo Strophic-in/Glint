@@ -1,0 +1,8 @@
+{
+  "_comment": "Copy these three values from Partner Center > your app > Product management > Product identity. Until then the placeholders build a valid package that cannot be uploaded.",
+  "identityName": "Strophic.Glint",
+  "publisher": "CN=00000000-0000-0000-0000-000000000000",
+  "publisherDisplayName": "Strophic",
+  "displayName": "Glint",
+  "description": "Real-time AI copilot for calls, meetings and your screen"
+}

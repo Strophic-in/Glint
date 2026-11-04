@@ -17,3 +17,5 @@ desktop/release/
 *.exe
 *.msi
 .claude/
+*.msix
+*.appx
