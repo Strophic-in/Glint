@@ -32,7 +32,7 @@ export interface Answer {
 export interface Notice {
   kind: 'info' | 'warn' | 'error' | 'balance';
   message: string;
-  action?: 'buy' | 'retry' | 'signin' | 'reveal';
+  action?: 'buy' | 'retry' | 'signin' | 'reveal' | 'session';
   /** File to show in Explorer for action 'reveal'. */
   path?: string;
 }
@@ -106,6 +106,9 @@ class Glint {
   onAnswerDone: ((a: Answer) => void) | null = null;
   /** Each finished caption line, as it arrives (session recording keeps them all). */
   onTurnFinal: ((t: Turn) => void) | null = null;
+  /** Glint listens and answers only inside a session (set by recorder.svelte.ts). */
+  sessionActive = $state(false);
+  startSession: (() => Promise<void>) | null = null;
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
   private autoAnsweredId = '';
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -214,6 +217,8 @@ class Glint {
   // ── Listening ───────────────────────────────────────────
   async toggleListen() {
     if (this.phase !== 'ready') return;
+    // No session yet: listening starts one (which starts listening).
+    if (!this.sessionActive) return void this.startSession?.();
     if (this.listen === 'off' || this.listen === 'error') {
       if (this.balance <= 0) return this.outOfTime();
       this.listen = 'connecting';
@@ -316,6 +321,10 @@ class Glint {
 
   async ask(action: Action, opts: { question?: string; auto?: boolean } = {}) {
     if (this.phase !== 'ready') return;
+    if (!this.sessionActive) {
+      this.notify({ kind: 'info', message: 'Glint helps inside a session. Start one to get answers.', action: 'session' }, 8000);
+      return;
+    }
     if (this.balance <= 0) return this.outOfTime();
     const transcript = this.transcript();
     const followup = action === 'shorter' || action === 'expand' || action === 'followups';

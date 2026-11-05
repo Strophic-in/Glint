@@ -9,6 +9,8 @@
     <span class="msg">{glint.notice.message}</span>
     {#if glint.notice.action === 'buy'}
       <button class="cta" onclick={() => glint.buy()}>Add hours</button>
+    {:else if glint.notice.action === 'session'}
+      <button class="cta" onclick={() => { glint.notice = null; glint.startSession?.(); }}>Start session</button>
     {:else if glint.notice.action === 'reveal' && glint.notice.path}
       <button class="cta" onclick={() => ipc.revealPath(glint.notice!.path!)}>Show file</button>
     {/if}

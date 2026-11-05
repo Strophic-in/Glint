@@ -60,6 +60,7 @@ class Recorder {
   async start() {
     if (this.active || this.finishing) return;
     this.active = true;
+    glint.sessionActive = true;
     this.startedAt = Date.now();
     this.endedAt = 0;
     this.entries = [];
@@ -109,6 +110,7 @@ class Recorder {
     clearInterval(this.timer);
     this.snapshot();
     this.active = false;
+    glint.sessionActive = false;
     await ipc.setSessionAssets(null).catch(() => {});
     this.finishing = true;
     this.endedAt = Date.now();

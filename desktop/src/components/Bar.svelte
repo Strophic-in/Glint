@@ -125,21 +125,24 @@
       class:live
       class:connecting={glint.listen === 'connecting' || glint.listen === 'reconnecting'}
       onclick={() => glint.toggleListen()}
-      title="{live ? (recorder.active ? 'Pause listening (the session keeps recording)' : 'Stop listening') : recorder.active ? 'Resume listening' : 'Listen to the call'} ({keys('listen')})"
+      title="{live ? (recorder.active ? 'Pause listening (the session keeps recording)' : 'Stop listening') : recorder.active ? 'Resume listening' : 'Start a session: Glint records it and starts listening'} ({keys('listen')})"
     >
       {#if live}
         <span class="meters" aria-hidden="true">
           <i style:transform="scaleY({0.15 + glint.levels.them * 0.85})" class="them"></i>
           <i style:transform="scaleY({0.15 + glint.levels.you * 0.85})"></i>
         </span>
-        <span class="time">{glint.listen === 'reconnecting' ? '…' : clock(now - glint.listenSince)}</span>
+        <!-- In a session the REC timer is the one clock; this button just pauses. -->
+        {#if !recorder.active}<span class="time">{glint.listen === 'reconnecting' ? '…' : clock(now - glint.listenSince)}</span>{/if}
         <Icon name={recorder.active ? 'pause' : 'stop'} size={13} />
       {:else if glint.listen === 'connecting'}
         <Icon name="mic" size={15} /> …
       {:else if recorder.active}
         <Icon name="play" size={14} /> Resume
+      {:else if recorder.finishing}
+        <Icon name="mic" size={15} /> Saving…
       {:else}
-        <Icon name="mic" size={15} /> Listen
+        <Icon name="mic" size={15} /> Start session
       {/if}
     </button>
 

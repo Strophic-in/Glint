@@ -87,6 +87,10 @@
     updates.start();
     glint.onAnswerDone = (a) => recorder.record(a);
     glint.onTurnFinal = (t) => recorder.line(t);
+    glint.startSession = async () => {
+      glint.view = 'main';
+      await recorder.start();
+    };
     // Saved placement (monitor + spot), once the window has its real size.
     const placeTimer = setTimeout(() => ipc.placeWindow(settings.placeMonitor, settings.placeAnchor), 400);
     // Quitting from the menu or tray: save an open session (with a quick review) first.
