@@ -78,6 +78,7 @@ pub fn run() {
             commands::quit_now,
             commands::session_review,
             commands::save_session,
+            commands::set_session_assets,
             commands::sessions_dir,
             commands::reveal_path,
             commands::list_monitors,

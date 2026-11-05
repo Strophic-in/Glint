@@ -1,6 +1,6 @@
 [package]
 name = "glint"
-version = "0.2.1"
+version = "0.2.2"
 description = "Glint - real-time AI copilot"
 edition = "2021"
 

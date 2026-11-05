@@ -40,7 +40,7 @@ const TASKS: Record<Action, string> = {
     'Task: Recap the conversation so far in this structure: **Summary** (2-3 lines), **Decisions**, **Open questions**, **Next steps** (with owners if known). Skip empty sections.',
   summary: `Task: The session has ended. Write a review the user will keep and re-read later (this overrides the length limit; no "Say:" lines), in markdown with these sections, skipping any that would be empty:
 **Summary**: 2-3 lines on what the call was about.
-**Questions asked**: every question the other side ("Them") asked, in order, as a numbered list; under each, one line with the ideal answer.
+**Questions asked**: every question asked in the session, in order, as a numbered list: what the other side ("Them") asked, and questions that were on the screen (see <session_answers>); under each, one line with the ideal answer.
 **How it went**: what went well and the 2-3 most useful improvements, specific to what was actually said (for interviews: structure, examples, numbers, gaps).
 **Follow-ups**: things to send, research or prepare next, with owners if known.`,
 };
@@ -110,5 +110,10 @@ export function userPrompt(a: {
   }
   parts.push(TASKS[a.action]);
   if (a.action === 'ask' && a.question.trim()) parts.push(`User's question: ${a.question.trim()}`);
+  if (a.action === 'summary' && a.question.trim()) {
+    parts.push(`<session_answers note="what Glint answered during the session, including questions read off the screen">
+${a.question.trim()}
+</session_answers>`);
+  }
   return parts.join('\n\n');
 }

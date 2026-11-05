@@ -9,6 +9,15 @@
   import Spark from './Spark.svelte';
   import { recorder } from '../lib/recorder.svelte';
 
+  // The session's End button asks once more; the question goes away by itself after a few seconds.
+  let confirmEnd = $state(false);
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined;
+  function askEnd() {
+    confirmEnd = true;
+    clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => (confirmEnd = false), 5000);
+  }
+
   let now = $state(Date.now());
   $effect(() => {
     const t = setInterval(() => (now = Date.now()), 1000);
@@ -90,10 +99,25 @@
     </button>
     {#if recorder.active || recorder.finishing}
       {@const secs = Math.max(0, Math.floor((now - recorder.startedAt) / 1000))}
-      <button class="rec" onclick={() => recorder.end()} disabled={recorder.finishing} title="End the session and save it">
-        <span class="dot"></span>
-        {#if recorder.finishing}Saving…{:else}{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}<span class="end">End</span>{/if}
-      </button>
+      {#if confirmEnd && recorder.active}
+        <span class="rec confirm">
+          End?
+          <button class="end" onclick={() => { confirmEnd = false; recorder.end(); }} title="Save the session and end it">Save</button>
+          <button class="keep" onclick={() => (confirmEnd = false)} title="Keep recording">Keep</button>
+        </span>
+      {:else}
+        <!-- Ending needs a second click: it sits next to Listen, which only pauses. -->
+        <button
+          class="rec"
+          class:paused={!live}
+          onclick={askEnd}
+          disabled={recorder.finishing}
+          title={live ? 'Session recording. Click to end it.' : 'Session recording, listening paused. Click to end it.'}
+        >
+          <span class="dot"></span>
+          {#if recorder.finishing}Saving…{:else}{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}{#if !live}<span class="state">paused</span>{/if}<span class="end">End</span>{/if}
+        </button>
+      {/if}
     {/if}
 
     <button
@@ -101,7 +125,7 @@
       class:live
       class:connecting={glint.listen === 'connecting' || glint.listen === 'reconnecting'}
       onclick={() => glint.toggleListen()}
-      title="{live ? 'Stop listening' : 'Listen to the call'} ({keys('listen')})"
+      title="{live ? (recorder.active ? 'Pause listening (the session keeps recording)' : 'Stop listening') : recorder.active ? 'Resume listening' : 'Listen to the call'} ({keys('listen')})"
     >
       {#if live}
         <span class="meters" aria-hidden="true">
@@ -109,9 +133,11 @@
           <i style:transform="scaleY({0.15 + glint.levels.you * 0.85})"></i>
         </span>
         <span class="time">{glint.listen === 'reconnecting' ? '…' : clock(now - glint.listenSince)}</span>
-        <Icon name="stop" size={13} />
+        <Icon name={recorder.active ? 'pause' : 'stop'} size={13} />
       {:else if glint.listen === 'connecting'}
         <Icon name="mic" size={15} /> …
+      {:else if recorder.active}
+        <Icon name="play" size={14} /> Resume
       {:else}
         <Icon name="mic" size={15} /> Listen
       {/if}
@@ -179,6 +205,37 @@
     border-radius: 50%;
     background: var(--live);
     animation: pulse 1.4s ease-in-out infinite;
+  }
+  .rec.paused {
+    border-color: rgba(245, 184, 61, 0.45);
+    background: rgba(245, 184, 61, 0.1);
+    color: var(--accent);
+  }
+  .rec.paused .dot {
+    background: var(--accent);
+    animation: none;
+  }
+  .rec .state {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.85;
+  }
+  .rec.confirm {
+    gap: 5px;
+    padding-right: 4px;
+  }
+  .rec.confirm button {
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 650;
+  }
+  .rec.confirm .keep {
+    color: var(--muted);
+  }
+  .rec.confirm .keep:hover {
+    color: var(--text);
+    background: var(--raise-2);
   }
   .rec .end {
     margin-left: 2px;

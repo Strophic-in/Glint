@@ -1,8 +1,9 @@
 // Session recording: from "Start session" until it ends, every caption and every answer is kept and
 // written to Documents\Glint Sessions as a Markdown file (autosaved, so a crash loses seconds at most).
-// Ending the session, or quitting Glint, adds an AI review: every question asked, ideal answers,
-// how it went and follow-ups.
-import { glint, sessionLabel, type Answer } from './store.svelte';
+// Listening can be paused and resumed inside a session. Screenshots used for answers (a question on a
+// shared screen, say) are saved in a folder next to the file and linked from it. Ending the session,
+// or quitting Glint, adds an AI review: every question asked, ideal answers, how it went, follow-ups.
+import { glint, sessionLabel, type Answer, type Turn } from './store.svelte';
 import { settings } from './settings.svelte';
 import { ipc, errorMessage } from './ipc';
 
@@ -14,6 +15,8 @@ interface Entry {
   question: string;
   answer: string;
   auto: boolean;
+  /** Screenshot the answer used, relative to the session file. */
+  screen?: string;
 }
 
 interface Line {
@@ -63,22 +66,34 @@ class Recorder {
     this.lines = new Map();
     this.title = sessionLabel();
     this.file = `${stamp(this.startedAt)} ${this.title.replace(/ · /g, ' - ')}`;
+    // Captions already on screen belong to this session too.
+    for (const t of glint.turns) if (t.final) this.line(t);
+    // Screenshots go into a folder named like the file (created only when the first one is saved).
+    await ipc.setSessionAssets(this.file).catch(() => {});
     this.timer = setInterval(() => void this.save(), AUTOSAVE_MS);
     await this.save();
     if (glint.listen === 'off' || glint.listen === 'error') await glint.toggleListen();
   }
 
+  /** Each finished caption line (kept even if the captions are cleared on screen). */
+  line(t: Turn) {
+    if (this.active && t.text.trim()) this.lines.set(t.id, { who: t.who, text: t.text.trim(), at: t.at });
+  }
+
   /** Called when an answer finishes streaming. */
   record(a: Answer) {
     if (!this.active || !a.text.trim()) return;
-    // An answer to the call has no typed question: use what "Them" said last.
+    // A typed question is the question; "Solve screen" answers what's on screen; otherwise it's
+    // what "Them" said last.
     const heard = [...glint.turns].reverse().find((t) => t.who === 'them' && t.final && t.text.trim());
+    const question = a.question || (a.action === 'screen' ? 'Question on the screen' : heard?.text.trim() || '');
     this.entries.push({
       at: Date.now(),
       label: a.auto ? 'Auto-answer' : a.label,
-      question: a.question || heard?.text.trim() || '',
+      question,
       answer: a.text.trim(),
       auto: a.auto,
+      screen: a.screenPath ? a.screenPath.split(/[\\/]/).slice(-2).join('/') : undefined,
     });
     void this.save();
   }
@@ -94,6 +109,7 @@ class Recorder {
     clearInterval(this.timer);
     this.snapshot();
     this.active = false;
+    await ipc.setSessionAssets(null).catch(() => {});
     this.finishing = true;
     this.endedAt = Date.now();
     if (glint.listen !== 'off' && glint.listen !== 'error') await ipc.listenStop().catch(() => {});
@@ -101,13 +117,18 @@ class Recorder {
     if (!quick) glint.notify({ kind: 'info', message: 'Session saved. Writing your review…' }, 0);
 
     const transcript = this.transcript().map(({ who, text }) => ({ who, text }));
-    if (transcript.length) {
+    if (transcript.length || this.entries.length) {
       try {
         const review = await withTimeout(
           ipc.sessionReview({
             action: 'summary',
             model: settings.model || undefined,
             transcript,
+            // What Glint answered, including questions read off the screen, so the review covers them.
+            question: this.entries
+              .map((e, i) => `${i + 1}. [${e.label}] ${e.question || '(no question text)'}\n   Glint: ${e.answer.replace(/\s+/g, ' ').slice(0, 400)}`)
+              .join('\n')
+              .slice(-11_000),
             profile: {
               mode: settings.mode,
               context: settings.context,
@@ -171,7 +192,9 @@ class Recorder {
     if (!this.entries.length) out.push('_No answers were requested in this session._', '');
     this.entries.forEach((e, i) => {
       out.push(`### ${i + 1}. ${e.question ? e.question.replace(/\s+/g, ' ').slice(0, 300) : e.label}`, '');
-      out.push(`_${clock(e.at)} · ${e.label}_`, '', e.answer, '');
+      out.push(`_${clock(e.at)} · ${e.label}_`, '');
+      if (e.screen) out.push(`![Screen at ${clock(e.at)}](<${e.screen}>)`, '');
+      out.push(e.answer, '');
     });
     const lines = this.transcript();
     out.push('## Transcript', '');

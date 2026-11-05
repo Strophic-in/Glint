@@ -23,6 +23,10 @@ pub struct AppState {
     pub screen_frame: Mutex<Option<Frame>>,
     /// Bumped to stop the screen watcher; the thread exits when its generation is stale.
     pub screen_watch: AtomicU64,
+    /// While a session records: its folder, where screenshots used for answers are saved.
+    pub session_assets: Mutex<Option<std::path::PathBuf>>,
+    /// Fingerprint and path of the last saved screenshot (an unchanged screen isn't saved twice).
+    pub last_shot: Mutex<Option<(u64, String)>>,
 }
 
 impl AppState {
@@ -41,6 +45,8 @@ impl AppState {
             layout_left: AtomicI32::new(0),
             screen_frame: Mutex::new(None),
             screen_watch: AtomicU64::new(0),
+            session_assets: Mutex::new(None),
+            last_shot: Mutex::new(None),
         }
     }
 

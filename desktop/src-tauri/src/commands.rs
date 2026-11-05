@@ -144,14 +144,17 @@ pub fn ask(app: AppHandle, state: State<'_, AppState>, id: u64, body: Value, wit
     let task = tauri::async_runtime::spawn(async move {
         let mut body = body;
         if let Some(img) = cached {
+            let path = save_session_shot(&app2, &img);
             body["image"] = Value::String(img);
-            let _ = app2.emit("answer", json!({ "id": id, "kind": "screen", "data": { "ms": 0, "cached": true } }));
+            let _ = app2.emit("answer", json!({ "id": id, "kind": "screen", "data": { "ms": 0, "cached": true, "path": path } }));
         } else if with_screen {
             let t0 = std::time::Instant::now();
             match tauri::async_runtime::spawn_blocking(screen::capture_jpeg_b64).await {
                 Ok(Ok(img)) => {
+                    let ms = t0.elapsed().as_millis() as u64;
+                    let path = save_session_shot(&app2, &img);
                     body["image"] = Value::String(img);
-                    let _ = app2.emit("answer", json!({ "id": id, "kind": "screen", "data": { "ms": t0.elapsed().as_millis() as u64 } }));
+                    let _ = app2.emit("answer", json!({ "id": id, "kind": "screen", "data": { "ms": ms, "path": path } }));
                 }
                 Ok(Err(e)) => {
                     let _ = app2.emit("answer", json!({ "id": id, "kind": "notice", "data": { "message": format!("Screen capture failed: {e}") } }));
@@ -372,6 +375,57 @@ pub async fn session_review(state: State<'_, AppState>, body: Value) -> R<String
     api::collect_answer(&api, &token, body).await
 }
 
+/// While a session records, keep the screenshot an answer used (so questions shown on a shared
+/// screen end up in the session file). Returns the saved file's path.
+fn save_session_shot(app: &AppHandle, jpeg_b64: &str) -> Option<String> {
+    use base64::Engine;
+    let state = app.state::<AppState>();
+    let dir = state.session_assets.lock().unwrap().clone()?;
+    let bytes = base64::engine::general_purpose::STANDARD.decode(jpeg_b64).ok()?;
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in bytes.iter().step_by(7) {
+        hash = (hash ^ *b as u64).wrapping_mul(0x0100_0000_01b3);
+    }
+    let mut last = state.last_shot.lock().unwrap();
+    if let Some((h, path)) = last.as_ref() {
+        if *h == hash && std::path::Path::new(path).exists() {
+            return Some(path.clone());
+        }
+    }
+    let ms = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
+    let path = dir.join(format!("screen-{ms}.jpg"));
+    std::fs::write(&path, &bytes).ok()?;
+    let path = path.to_string_lossy().into_owned();
+    *last = Some((hash, path.clone()));
+    Some(path)
+}
+
+/// Turn a title into a safe Windows file or folder name.
+fn clean_name(name: &str) -> String {
+    let clean: String = name
+        .chars()
+        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '-' } else { c })
+        .take(120)
+        .collect();
+    clean.trim().trim_end_matches('.').to_string()
+}
+
+/// Start (Some(name)) or stop (None) saving screenshots into the session's folder.
+#[tauri::command]
+pub fn set_session_assets(app: AppHandle, state: State<'_, AppState>, name: Option<String>) -> R<Option<String>> {
+    let dir = match name.map(|n| clean_name(&n)).filter(|n| !n.is_empty()) {
+        Some(n) => {
+            let dir = sessions_folder(&app)?.join(n);
+            std::fs::create_dir_all(&dir).map_err(|e| ApiError::local("files", e.to_string()))?;
+            Some(dir)
+        }
+        None => None,
+    };
+    *state.session_assets.lock().unwrap() = dir.clone();
+    *state.last_shot.lock().unwrap() = None;
+    Ok(dir.map(|d| d.to_string_lossy().into_owned()))
+}
+
 fn sessions_folder(app: &AppHandle) -> R<std::path::PathBuf> {
     let docs = app.path().document_dir().map_err(|e| ApiError::local("files", e.to_string()))?;
     Ok(docs.join("Glint Sessions"))
@@ -383,12 +437,7 @@ fn sessions_folder(app: &AppHandle) -> R<std::path::PathBuf> {
 pub fn save_session(app: AppHandle, file_name: String, content: String) -> R<String> {
     let dir = sessions_folder(&app)?;
     std::fs::create_dir_all(&dir).map_err(|e| ApiError::local("files", e.to_string()))?;
-    let clean: String = file_name
-        .chars()
-        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '-' } else { c })
-        .take(120)
-        .collect();
-    let clean = clean.trim().trim_end_matches('.').to_string();
+    let clean = clean_name(&file_name);
     let name = match clean.as_str() {
         "" => "Glint session.md".to_string(),
         n if n.to_ascii_lowercase().ends_with(".md") => n.to_string(),

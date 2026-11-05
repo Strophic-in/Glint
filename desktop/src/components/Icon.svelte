@@ -4,6 +4,8 @@
   const PATHS: Record<string, string> = {
     mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z M19 11a7 7 0 0 1-14 0 M12 18v3',
     stop: 'M7 7h10v10H7z',
+    pause: 'M9 6v12 M15 6v12',
+    play: 'M8 5.5v13l10-6.5Z',
     bolt: 'M13 2 4 14h7l-1 8 9-12h-7l1-8Z',
     screen: 'M3 5h18v11H3z M8 20h8 M12 16v4',
     keyboard: 'M3 7h18v10H3z M7 11h.01 M11 11h.01 M15 11h.01 M7 14h10',

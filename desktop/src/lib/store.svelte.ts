@@ -25,6 +25,8 @@ export interface Answer {
   startedAt: number;
   firstMs: number;
   error?: string;
+  /** Screenshot this answer used, saved into the session folder while recording. */
+  screenPath?: string;
 }
 
 export interface Notice {
@@ -102,6 +104,8 @@ class Glint {
   private lastAnswer: { question: string; text: string } | null = null;
   /** Session recording hooks in here (see recorder.svelte.ts). */
   onAnswerDone: ((a: Answer) => void) | null = null;
+  /** Each finished caption line, as it arrives (session recording keeps them all). */
+  onTurnFinal: ((t: Turn) => void) | null = null;
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
   private autoAnsweredId = '';
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -274,6 +278,7 @@ class Glint {
       if (this.turns.length > MAX_TURNS) this.turns.splice(0, this.turns.length - MAX_TURNS);
     }
     if (final && !text.trim()) this.turns = this.turns.filter((x) => x.id !== id);
+    else if (final) this.onTurnFinal?.({ id, who, text, final, at: Date.now() });
   }
 
   private considerAutoAnswer(id: string) {
@@ -383,6 +388,9 @@ class Glint {
     const a = this.answer;
     if (!a || a.id !== id) return;
     switch (kind) {
+      case 'screen':
+        if (typeof data?.path === 'string') a.screenPath = data.path;
+        break;
       case 'delta':
         if (!a.firstMs) a.firstMs = Math.round(performance.now() - a.startedAt);
         a.status = 'streaming';

@@ -172,7 +172,8 @@ export async function answerRoutes(app: FastifyInstance) {
     const action: Action = ACTIONS.includes(b.action) ? b.action : 'answer';
     const chosen = resolveModel(b.model);
     const mode: Mode = MODES.includes(b.profile?.mode) ? b.profile.mode : 'general';
-    const question = str(b.question, 4000);
+    // The session review sends its log of answers (incl. questions read off the screen) here.
+    const question = str(b.question, b.action === 'summary' ? 12_000 : 4000);
     const context = str(b.profile?.context, 6000);
     const language = str(b.profile?.language, 40) || 'English';
     const image = typeof b.image === 'string' && b.image.length > 100 ? b.image : null;

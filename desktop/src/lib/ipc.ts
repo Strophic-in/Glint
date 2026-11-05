@@ -81,6 +81,7 @@ export const ipc = {
   quitNow: () => invoke<void>('quit_now'),
   sessionReview: (body: unknown) => invoke<string>('session_review', { body }),
   saveSession: (fileName: string, content: string) => invoke<string>('save_session', { fileName, content }),
+  setSessionAssets: (name: string | null) => invoke<string | null>('set_session_assets', { name }),
   sessionsDir: () => invoke<string>('sessions_dir'),
   revealPath: (path: string) => invoke<void>('reveal_path', { path }),
   listMonitors: () => invoke<MonitorInfo[]>('list_monitors'),
