@@ -67,10 +67,15 @@
     ipc.resize(Math.ceil(r.width * z), Math.ceil(r.height * z), left * z);
   }
 
-  function startResize(e: PointerEvent) {
+  // Which edge is being dragged: the right edge changes the width, the bottom edge the answer
+  // height, the corner both. The cursor stays a resize cursor until the button is released.
+  let resizeMode = $state<'both' | 'x' | 'y'>('both');
+  function startResize(e: PointerEvent, mode: 'both' | 'x' | 'y') {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
+    resizeMode = mode;
+    document.documentElement.style.cursor = mode === 'x' ? 'ew-resize' : mode === 'y' ? 'ns-resize' : 'nwse-resize';
     dragSize = { w: settings.width, h: settings.answerHeight };
     ipc.resizeDrag();
   }
@@ -100,13 +105,14 @@
       if (!dragSize) return;
       const k = window.devicePixelRatio || 1;
       const next = {
-        w: clamp(settings.width + dx / k, SIZE.minWidth, SIZE.maxWidth),
-        h: clamp(settings.answerHeight + dy / k, SIZE.minAnswer, SIZE.maxAnswer),
+        w: resizeMode === 'y' ? settings.width : clamp(settings.width + dx / k, SIZE.minWidth, SIZE.maxWidth),
+        h: resizeMode === 'x' ? settings.answerHeight : clamp(settings.answerHeight + dy / k, SIZE.minAnswer, SIZE.maxAnswer),
       };
       if (done) {
         settings.width = next.w;
         settings.answerHeight = next.h;
         dragSize = null;
+        document.documentElement.style.cursor = '';
       } else {
         dragSize = next;
       }
@@ -218,11 +224,16 @@
       {/if}
 
       <Notice />
+      <!-- Resize: right edge (width), bottom edge (height), corner (both). -->
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="edge edge-r" class:active={!!dragSize && resizeMode === 'x'} onpointerdown={(e) => startResize(e, 'x')}></div>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="edge edge-b" class:active={!!dragSize && resizeMode === 'y'} onpointerdown={(e) => startResize(e, 'y')}></div>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="grip"
-        class:active={!!dragSize}
-        onpointerdown={startResize}
+        class:active={!!dragSize && resizeMode === 'both'}
+        onpointerdown={(e) => startResize(e, 'both')}
         ondblclick={() => {
           settings.width = 720;
           settings.answerHeight = 420;
@@ -267,15 +278,59 @@
     background: var(--accent-soft);
     border-bottom: 1px solid var(--border);
   }
-  /* Bottom-right resize handle: three short diagonal strokes, brighter on hover. */
+  /* Resize handles. The edges are invisible strips that light up on hover; the corner shows
+     three diagonal strokes. They stay inside the window (main has 10px of bottom padding). */
+  .edge {
+    position: absolute;
+    z-index: 5;
+  }
+  .edge::after {
+    content: '';
+    position: absolute;
+    border-radius: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .edge:hover::after,
+  .edge.active::after {
+    opacity: 0.7;
+  }
+  .edge-r {
+    top: 52px;
+    bottom: 12px;
+    right: 0;
+    width: 7px;
+    cursor: ew-resize;
+  }
+  .edge-r::after {
+    top: 0;
+    bottom: 0;
+    right: 1px;
+    width: 3px;
+  }
+  .edge-b {
+    left: 12px;
+    right: 20px;
+    bottom: -10px;
+    height: 9px;
+    cursor: ns-resize;
+  }
+  .edge-b::after {
+    left: 0;
+    right: 0;
+    bottom: 3px;
+    height: 3px;
+  }
   .grip {
     position: absolute;
-    right: 1px;
-    bottom: -9px;
-    width: 14px;
-    height: 14px;
+    z-index: 6;
+    right: 0;
+    bottom: -10px;
+    width: 18px;
+    height: 18px;
     cursor: nwse-resize;
-    opacity: 0.45;
+    opacity: 0.55;
     background:
       linear-gradient(135deg, transparent 45%, var(--muted) 45%, var(--muted) 52%, transparent 52%),
       linear-gradient(135deg, transparent 65%, var(--muted) 65%, var(--muted) 72%, transparent 72%),
