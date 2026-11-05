@@ -170,3 +170,50 @@ pub async fn stream_answer(api: &Api, token: &str, body: Value, app: &AppHandle,
         emit_answer(app, id, "error", json!(ApiError::local("network", "Connection dropped. Press again to retry.")));
     }
 }
+
+/// Run an answer request to completion and return the whole text. Used for the end-of-session
+/// review, which goes into the saved session file instead of streaming into the overlay.
+pub async fn collect_answer(api: &Api, token: &str, body: Value) -> Result<String, ApiError> {
+    let res = api
+        .http
+        .post(api.url("/v1/answer"))
+        .bearer_auth(token)
+        .json(&body)
+        .send()
+        .await
+        .map_err(ApiError::network)?;
+    if !res.status().is_success() {
+        return Err(Api::parse(res).await.err().unwrap_or_else(|| ApiError::local("error", "Unexpected response.")));
+    }
+    let mut stream = res.bytes_stream();
+    let mut buf: Vec<u8> = Vec::with_capacity(8192);
+    let mut text = String::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(ApiError::network)?;
+        buf.extend_from_slice(&chunk);
+        while let Some(pos) = buf.windows(2).position(|w| w == b"\n\n") {
+            let block: Vec<u8> = buf.drain(..pos + 2).collect();
+            let block = String::from_utf8_lossy(&block);
+            let mut event = "message";
+            let mut data = String::new();
+            for line in block.lines() {
+                if let Some(v) = line.strip_prefix("event:") {
+                    event = v.trim();
+                } else if let Some(v) = line.strip_prefix("data:") {
+                    data.push_str(v.trim_start());
+                }
+            }
+            let payload: Value = serde_json::from_str(&data).unwrap_or(Value::Null);
+            match event {
+                "delta" => text.push_str(payload.get("t").and_then(Value::as_str).unwrap_or("")),
+                "done" => return Ok(text),
+                "error" => {
+                    let msg = payload.get("message").and_then(Value::as_str).unwrap_or("The review failed.");
+                    return Err(ApiError::local("error", msg));
+                }
+                _ => {}
+            }
+        }
+    }
+    Err(ApiError::local("network", "Connection dropped before the review finished."))
+}

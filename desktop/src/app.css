@@ -205,6 +205,33 @@ kbd {
   padding: 10px 12px;
   overflow-x: auto;
 }
+/* Where a code block was moved to the side panel; click to jump to it. */
+.md .code-ref {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 9px;
+  background: var(--raise);
+  font-size: 12.5px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.md .code-ref:hover {
+  color: var(--text);
+  border-color: var(--accent);
+}
+.md .code-ref .arrow {
+  color: var(--accent);
+  font-weight: 700;
+}
+.md .code-ref b {
+  font-family: var(--mono);
+  font-weight: 600;
+  color: var(--text);
+}
 .md pre code {
   background: none;
   padding: 0;

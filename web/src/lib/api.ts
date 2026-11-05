@@ -35,8 +35,15 @@ export type AdminStats = {
   input_tokens_7d: number;
   output_tokens_7d: number;
   balance_outstanding_seconds: number;
-  daily: { day: string; signups: number; revenue_paise: number; live_seconds: number; answers: number }[];
+  daily: { day: string; signups: number; revenue_paise: number; live_seconds: number; answers: number; cost_micros: number }[];
+  cost: {
+    usd_inr: number;
+    /** AI cost in USD micro-dollars; stt = live transcription, answer = AI answers. */
+    windows: { id: '24h' | '7d' | '30d' | 'all'; label: string; stt_micros: number; answer_micros: number; revenue_paise: number }[];
+  };
 };
+
+export type AdminUserSort = 'recent' | 'cost' | 'usage' | 'paid';
 
 export type AdminUser = {
   id: string;
@@ -51,6 +58,8 @@ export type AdminUser = {
   blocked_reason: string | null;
   paid_paise: number;
   used_seconds: number;
+  answers: number;
+  cost_micros: number;
   live: boolean;
 };
 
@@ -65,7 +74,29 @@ export type AdminUserDetail = {
     admin: boolean;
   };
   live: boolean;
-  usage: (UsageRow & { model: string | null; input_tokens: number | null; output_tokens: number | null })[];
+  usd_inr: number;
+  totals: {
+    sessions: number;
+    live_seconds: number;
+    answers: number;
+    answer_seconds: number;
+    audio_ms: number;
+    input_tokens: number;
+    cached_tokens: number;
+    output_tokens: number;
+    stt_cost_micros: number;
+    answer_cost_micros: number;
+    paid_paise: number;
+  };
+  usage: (UsageRow & {
+    model: string | null;
+    input_tokens: number | null;
+    cached_tokens: number | null;
+    output_tokens: number | null;
+    audio_ms: number | null;
+    service_tier: string | null;
+    cost_micros: number | null;
+  })[];
   orders: (OrderRow & { payment_id: string | null; paid_at: number | null })[];
   credits: { seconds: number; reason: string; note: string | null; created_at: number }[];
   sessions: { kind: string; created_at: number; last_used_at: number; user_agent: string | null }[];
@@ -82,6 +113,7 @@ export type RuntimeConfig = {
   idle_timeout_s: number;
   allowed_models: string[];
   default_model: string;
+  usd_inr: number;
 };
 
 export type CatalogModel = { id: string; label: string; allowed: boolean; accessible: boolean };
@@ -285,17 +317,21 @@ export const api = {
 
   admin: {
     stats: () => request<AdminStats>('/v1/admin/stats'),
-    users: (q: string, filter: string, offset = 0) =>
-      request<{ users: AdminUser[]; total: number }>(
-        `/v1/admin/users?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&offset=${offset}&limit=50`
+    users: (q: string, filter: string, offset = 0, sort: AdminUserSort = 'recent') =>
+      request<{ users: AdminUser[]; total: number; usd_inr: number }>(
+        `/v1/admin/users?q=${encodeURIComponent(q)}&filter=${encodeURIComponent(filter)}&sort=${sort}&offset=${offset}&limit=50`
       ),
     user: (id: string) => request<AdminUserDetail>(`/v1/admin/users/${encodeURIComponent(id)}`),
     block: (id: string, reason: string) =>
       request<{ ok: true }>(`/v1/admin/users/${encodeURIComponent(id)}/block`, { body: { reason } }),
     unblock: (id: string) => request<{ ok: true }>(`/v1/admin/users/${encodeURIComponent(id)}/unblock`, { body: {} }),
     time: (id: string, seconds: number, note: string) =>
-      request<{ ok: true; balance_seconds: number }>(`/v1/admin/users/${encodeURIComponent(id)}/time`, {
+      request<{ ok: true; balance_seconds: number; removed_seconds?: number }>(`/v1/admin/users/${encodeURIComponent(id)}/time`, {
         body: { seconds, note }
+      }),
+    removeAllTime: (id: string, note: string) =>
+      request<{ ok: true; balance_seconds: number; removed_seconds: number }>(`/v1/admin/users/${encodeURIComponent(id)}/time`, {
+        body: { all: true, note }
       }),
     logout: (id: string) => request<{ ok: true }>(`/v1/admin/users/${encodeURIComponent(id)}/logout`, { body: {} }),
     live: () => request<{ live: { user_id: string; email: string; started_at: number }[] }>('/v1/admin/live'),

@@ -1,6 +1,6 @@
 [package]
 name = "glint"
-version = "0.1.0"
+version = "0.2.0"
 description = "Glint - real-time AI copilot"
 edition = "2021"
 
@@ -26,6 +26,7 @@ tauri-plugin-dialog = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-opener = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
 tokio = { version = "1.54.1", features = ["sync", "time", "macros", "rt"] }
 tokio-tungstenite = { version = "0.30.0", features = ["native-tls"] }
 windows = { version = "0.62", features = ["Win32_Foundation", "Win32_UI_WindowsAndMessaging", "Win32_Security_Cryptography", "Win32_Graphics_Gdi", "Win32_System_Threading", "Win32_UI_Input_KeyboardAndMouse"] }

@@ -1,12 +1,62 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { glint } from '../lib/store.svelte';
-  import { settings, DEFAULT_BINDINGS } from '../lib/settings.svelte';
-  import { ipc } from '../lib/ipc';
+  import { settings, DEFAULT_BINDINGS, SPEECH_LANGUAGES, ANCHORS, SIZES, SIZE } from '../lib/settings.svelte';
+  import { ipc, type MonitorInfo } from '../lib/ipc';
   import { accelFromEvent } from '../lib/keys';
   import { formatLeft } from '../lib/time';
   import Icon from './Icon.svelte';
   import Keys from './Keys.svelte';
+  import UnhideConfirm from './UnhideConfirm.svelte';
+  import { updates } from '../lib/update.svelte';
+
+  const updateLabel = $derived(
+    updates.store
+      ? 'Updated by the Microsoft Store'
+      : updates.status === 'checking'
+        ? 'Checking…'
+        : updates.status === 'none'
+          ? 'Up to date'
+          : updates.status === 'available' || updates.status === 'downloading' || updates.status === 'installing'
+            ? `v${updates.version} available`
+            : updates.status === 'error'
+              ? 'Check failed'
+              : 'Check for updates',
+  );
+
+  let confirmUnhide = $state(false);
+
+  // Hiding is instant; showing Glint in screen shares asks first (see UnhideConfirm).
+  function onProtectChange(e: Event) {
+    const box = e.currentTarget as HTMLInputElement;
+    if (box.checked) {
+      settings.protected = true;
+      confirmUnhide = false;
+    } else {
+      box.checked = true;
+      confirmUnhide = true;
+    }
+  }
+
+  let monitors = $state<MonitorInfo[]>([]);
+  let sessionsDir = $state('');
+
+  // Layout: move Glint to a spot on a display, and size presets (also set by the corner grip).
+  const place = () => ipc.placeWindow(settings.placeMonitor, settings.placeAnchor);
+
+  function applySize(id: string) {
+    const avail = Math.floor(window.screen.availWidth / settings.zoom);
+    const availH = Math.floor(window.screen.availHeight / settings.zoom);
+    const preset = SIZES.find((z) => z.id === id);
+    if (!preset) return;
+    const full = preset.id === 'full';
+    // Full width leaves room for the code panel next to the answer.
+    settings.width = Math.min(SIZE.maxWidth, Math.max(SIZE.minWidth, full ? Math.round((avail - 40) * 0.58) : preset.width));
+    settings.answerHeight = Math.min(SIZE.maxAnswer, Math.max(SIZE.minAnswer, full ? availH - 260 : preset.answerHeight));
+    setTimeout(place, 200); // re-anchor once the window has its new size
+  }
+
+  const sizeNow = $derived(SIZES.find((z) => z.width === settings.width && z.answerHeight === settings.answerHeight)?.id ?? '');
 
   let mics = $state<string[]>([]);
   let outputs = $state<string[]>([]);
@@ -23,6 +73,8 @@
   ];
 
   onMount(() => {
+    ipc.listMonitors().then((m) => (monitors = m));
+    ipc.sessionsDir().then((d) => (sessionsDir = d));
     ipc.listMics().then((m) => (mics = m));
     ipc.listOutputs().then((o) => (outputs = o));
     glint.startTyping(false); // settings needs keyboard focus
@@ -71,6 +123,20 @@
     <button class="back" onclick={() => (glint.view = 'main')}><Icon name="back" size={15} /> Back</button>
     <h2>Settings</h2>
     <span class="ver">v{glint.version}</span>
+    <button
+      class="ver-btn"
+      class:hot={updates.status === 'available'}
+      disabled={updates.store || updates.status === 'checking' || updates.status === 'downloading' || updates.status === 'installing'}
+      title={updates.error || 'Check for a newer version of Glint'}
+      onclick={() => {
+        if (updates.status === 'available') {
+          updates.dismissed = false;
+          glint.view = 'main';
+        } else {
+          updates.check(true);
+        }
+      }}>{updateLabel}</button
+    >
   </header>
 
   <div class="scroll body">
@@ -87,10 +153,24 @@
         <input type="checkbox" bind:checked={settings.screen} />
         <span><b>Include my screen</b> with Answer and typed questions</span>
       </label>
+      <label class="toggle sub" class:off={!settings.screen}>
+        <input type="checkbox" bind:checked={settings.screenAuto} disabled={!settings.screen} />
+        <span><b>Also with auto-answers</b> · sees what's being shared in the call</span>
+      </label>
+      <label class="toggle">
+        <input type="checkbox" bind:checked={settings.codePanel} />
+        <span><b>Code and diagrams in a side panel</b> · explanation stays on the right</span>
+      </label>
     </div>
 
     <div class="group">
       <h3>Audio</h3>
+      <label class="field">
+        <span><b>Speech language</b> · what the call is transcribed as</span>
+        <select class="wide" bind:value={settings.speechLanguage}>
+          {#each SPEECH_LANGUAGES as l}<option value={l.id}>{l.label}</option>{/each}
+        </select>
+      </label>
       <label class="toggle">
         <input type="checkbox" bind:checked={settings.system} />
         <span><b>System audio</b> · the other side of the call (Zoom, Meet, Teams, browser)</span>
@@ -117,14 +197,73 @@
     <div class="group">
       <h3>Privacy & look</h3>
       <label class="toggle">
-        <input type="checkbox" bind:checked={settings.protected} />
+        <input type="checkbox" checked={settings.protected} onchange={onProtectChange} />
         <span><b>Hide Glint from screen share</b> and recordings</span>
       </label>
+      {#if confirmUnhide}
+        <UnhideConfirm
+          oncancel={() => (confirmUnhide = false)}
+          onconfirm={() => {
+            settings.protected = false;
+            confirmUnhide = false;
+          }}
+        />
+      {/if}
       <label class="slider">
         <span>Opacity</span>
         <input type="range" min="0.6" max="1" step="0.02" bind:value={settings.opacity} />
         <span class="val">{Math.round(settings.opacity * 100)}%</span>
       </label>
+    </div>
+
+    <div class="group">
+      <h3>Layout</h3>
+      <label class="field">
+        <span><b>Display</b> · where Glint opens</span>
+        <select class="wide" bind:value={settings.placeMonitor} onchange={place}>
+          <option value="">Main display</option>
+          {#each monitors as m, i}
+            <option value={m.name}>Display {i + 1}{m.primary ? ' (main)' : ''} · {m.width}×{m.height}</option>
+          {/each}
+        </select>
+      </label>
+      <div class="field">
+        <span><b>Position</b></span>
+        <div class="seg">
+          {#each ANCHORS as a}
+            <button
+              class:on={settings.placeAnchor === a.id}
+              onclick={() => {
+                settings.placeAnchor = a.id;
+                place();
+              }}>{a.label}</button
+            >
+          {/each}
+        </div>
+      </div>
+      <div class="field">
+        <span><b>Size</b> · or drag Glint's bottom-right corner</span>
+        <div class="seg">
+          {#each SIZES as z}
+            <button class:on={sizeNow === z.id} onclick={() => applySize(z.id)}>{z.label}</button>
+          {/each}
+        </div>
+      </div>
+      <div class="field">
+        <span><b>Code &amp; diagram panel</b></span>
+        <div class="seg">
+          <button class:on={settings.codeSide === 'left'} onclick={() => (settings.codeSide = 'left')}>Left of the answer</button>
+          <button class:on={settings.codeSide === 'right'} onclick={() => (settings.codeSide = 'right')}>Right of the answer</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="group">
+      <h3>Sessions</h3>
+      <p class="note">Recorded sessions (questions, answers, AI review) are saved as files in <b>{sessionsDir || 'Documents\\Glint Sessions'}</b>.</p>
+      <button class="ghost wide-btn" onclick={() => sessionsDir && ipc.revealPath(sessionsDir)} disabled={!sessionsDir}>
+        <Icon name="file" size={14} /> Open the sessions folder
+      </button>
     </div>
 
     <div class="group">
@@ -176,6 +315,23 @@
     margin: 0;
     font-size: 14px;
     font-weight: 650;
+  }
+  .ver-btn {
+    font-size: 11.5px;
+    color: var(--muted);
+    padding: 3px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    white-space: nowrap;
+  }
+  .ver-btn:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--raise-2);
+  }
+  .ver-btn.hot {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
   }
   .ver {
     margin-left: auto;
@@ -268,6 +424,42 @@
   .toggle input:checked::after {
     transform: translateX(14px);
     background: var(--accent-ink);
+  }
+  .seg {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+  .seg button {
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+  .seg button:hover {
+    color: var(--text);
+    background: var(--raise);
+  }
+  .seg button.on {
+    color: var(--accent-ink);
+    background: var(--accent);
+    border-color: var(--accent);
+    font-weight: 600;
+  }
+  .toggle.sub {
+    padding-left: 24px;
+  }
+  .toggle.off {
+    opacity: 0.5;
+  }
+  .field {
+    display: grid;
+    gap: 6px;
+    font-size: 13px;
+  }
+  .field b {
+    font-weight: 600;
   }
   .wide {
     width: 100%;

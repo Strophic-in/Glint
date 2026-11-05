@@ -120,6 +120,48 @@ pub fn drag(w: &WebviewWindow) {
     });
 }
 
+/// Move and resize in one call, so a panel opening to the left never shows a half-moved frame.
+pub fn set_bounds(w: &WebviewWindow, x: i32, y: i32, width: i32, height: i32) {
+    if let Some(h) = hwnd(w) {
+        unsafe {
+            let _ = SetWindowPos(h, None, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+}
+
+/// Corner resize. Like `drag`, we follow the mouse ourselves instead of Windows' sizing loop
+/// (which draws an outline that screen sharing can see). While the button is held, the UI gets
+/// "resize-drag" events with the cursor's offset from where it was pressed, in physical pixels;
+/// it turns that into a new width/height and the window follows its content.
+pub fn track_resize(app: &AppHandle) {
+    if DRAGGING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        unsafe {
+            let mut start = POINT::default();
+            if GetCursorPos(&mut start).is_ok() {
+                let button = if GetSystemMetrics(SM_SWAPBUTTON) != 0 { VK_RBUTTON } else { VK_LBUTTON };
+                let mut last = (0, 0);
+                while (GetAsyncKeyState(button.0 as i32) as u16 & 0x8000) != 0 {
+                    let mut p = POINT::default();
+                    if GetCursorPos(&mut p).is_ok() {
+                        let d = (p.x - start.x, p.y - start.y);
+                        if d != last {
+                            let _ = app.emit("resize-drag", serde_json::json!({ "dx": d.0, "dy": d.1, "done": false }));
+                            last = d;
+                        }
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(8));
+                }
+                let _ = app.emit("resize-drag", serde_json::json!({ "dx": last.0, "dy": last.1, "done": true }));
+            }
+        }
+        DRAGGING.store(false, Ordering::SeqCst);
+    });
+}
+
 pub fn foreground() -> isize {
     unsafe { GetForegroundWindow().0 as isize }
 }

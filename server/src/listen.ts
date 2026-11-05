@@ -5,6 +5,7 @@ import { aiConfigured, config } from './config.js';
 import { deduct, effectiveBalance, logUsage, type UserRow } from './db.js';
 import { claimLive, releaseLive, type CloseReason, type LiveHandle } from './live-registry.js';
 import { MockTranscriber } from './mock.js';
+import { sttCostMicros } from './pricing.js';
 import { HttpError } from './util.js';
 
 const CLOSE_MESSAGES: Record<CloseReason, string> = {
@@ -32,6 +33,73 @@ function fatalMessage(code: string, model: string, raw: string) {
 }
 const MIN_COMMIT_BYTES = 24_000 * 2 * 0.1; // 100 ms of PCM16 @ 24 kHz
 const MAX_FRAME_BYTES = 24_000 * 2 * 2; // 2 s
+const PCM_BYTES_PER_SEC = 24_000 * 2; // PCM16 mono @ 24 kHz
+
+// ── Caption language ─────────────────────────────────────
+// Auto-detect hallucinates other languages on short or noisy audio (English heard as Hindi or
+// Chinese), so the app says which language(s) to expect: /v1/listen?lang=en, en,hi or auto.
+/** ISO-639-1 codes, or null for auto-detect. */
+export type Langs = string[] | null;
+
+/** `lang` query value → languages. Absent or invalid → STT_LANGUAGES if set, else English. */
+export function parseLangs(raw: unknown): Langs {
+  const fallback = config.sttLanguages.length ? config.sttLanguages.slice(0, 3) : ['en'];
+  if (typeof raw !== 'string' || !raw.trim()) return fallback;
+  const v = raw.trim().toLowerCase();
+  if (v === 'auto') return null;
+  const codes = [...new Set(v.split(',').map((c) => c.trim()))];
+  if (!codes.length || codes.length > 3 || !codes.every((c) => /^[a-z]{2}$/.test(c))) return fallback;
+  return codes;
+}
+
+const LANG_NAMES: Record<string, string> = {
+  en: 'English', hi: 'Hindi', es: 'Spanish', fr: 'French', de: 'German', pt: 'Portuguese', it: 'Italian',
+  nl: 'Dutch', ar: 'Arabic', ja: 'Japanese', zh: 'Chinese', ko: 'Korean', ru: 'Russian', tr: 'Turkish',
+  id: 'Indonesian', ta: 'Tamil', te: 'Telugu', mr: 'Marathi', bn: 'Bengali', gu: 'Gujarati', kn: 'Kannada',
+  ml: 'Malayalam', pa: 'Punjabi', ur: 'Urdu',
+};
+
+/** Short prompt that nudges the transcriber toward the expected language(s). */
+export function langPrompt(langs: Langs): string | undefined {
+  if (!langs?.length) return undefined;
+  const names = langs.map((c) => LANG_NAMES[c] ?? c);
+  if (names.length === 1) return `${names[0]} conversation on a call. Transcribe in ${names[0]} only.`;
+  const list = `${names.slice(0, -1).join(', ')} or ${names.at(-1)}`;
+  return `Conversation on a call in ${list}. Transcribe in the language spoken (${list}) only.`;
+}
+
+// Languages written in Latin script: when only these are expected, captions mostly in another
+// script are hallucinations.
+const LATIN_LANGS = new Set(['en', 'es', 'fr', 'de', 'pt', 'it', 'nl', 'id', 'ms', 'tr', 'pl', 'cs', 'ro', 'hu', 'sv', 'da', 'no', 'fi', 'vi', 'sw', 'tl']);
+export const latinOnly = (langs: Langs) => !!langs?.length && langs.every((c) => LATIN_LANGS.has(c));
+
+/** True when over 40% of the letters are not Latin script (CJK, Devanagari, Arabic, Cyrillic…). */
+export function mostlyNonLatin(text: string): boolean {
+  const letters = text.match(/\p{L}/gu)?.length ?? 0;
+  if (!letters) return false;
+  const latin = text.match(/\p{Script=Latin}/gu)?.length ?? 0;
+  return (letters - latin) / letters > 0.4;
+}
+
+/**
+ * Drops captions in the wrong script (see latinOnly). Deltas stop once an item looks wrong, and a
+ * dropped final goes out as empty text, which removes the caption in the app.
+ */
+function scriptGuard(langs: Langs, emit: Emit): Emit {
+  if (!latinOnly(langs)) return emit;
+  const seen = new Map<string, string>(); // item id → text so far
+  return (m) => {
+    if (m.type === 'delta') {
+      const acc = (seen.get(m.id) ?? '') + m.text;
+      seen.set(m.id, acc);
+      if (seen.size > 200) seen.delete(seen.keys().next().value!);
+      if (!mostlyNonLatin(acc)) emit(m);
+      return;
+    }
+    seen.delete(m.id);
+    emit(mostlyNonLatin(m.text) ? { ...m, text: '' } : m);
+  };
+}
 
 /** One OpenAI realtime transcription socket for one audio source. Reconnects lazily. */
 class OpenAITranscriber {
@@ -43,6 +111,7 @@ class OpenAITranscriber {
 
   constructor(
     private model: string,
+    private langs: Langs,
     private emit: Emit,
     private onNotice: (msg: string) => void,
     private log: FastifyRequest['log'],
@@ -52,24 +121,28 @@ class OpenAITranscriber {
     this.connect();
   }
 
+  private sessionUpdate() {
+    const transcription: Record<string, unknown> = { model: this.model };
+    if (config.sttDelay && /live/.test(this.model)) transcription.delay = config.sttDelay;
+    if (this.langs?.length) transcription.languages = this.langs;
+    const prompt = langPrompt(this.langs);
+    if (prompt && !promptRejected.has(this.model)) transcription.prompt = prompt;
+    return JSON.stringify({
+      type: 'session.update',
+      session: {
+        type: 'transcription',
+        audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription, turn_detection: null } },
+      },
+    });
+  }
+
   private connect() {
     const url = `${config.openaiBase.replace(/^http/, 'ws')}/realtime?intent=transcription`;
     const ws = new WebSocket(url, { headers: { authorization: `Bearer ${config.openaiKey}` } });
     this.ws = ws;
     this.open = false;
     ws.on('open', () => {
-      const transcription: Record<string, unknown> = { model: this.model };
-      if (config.sttDelay && /live/.test(this.model)) transcription.delay = config.sttDelay;
-      if (config.sttLanguages.length) transcription.languages = config.sttLanguages;
-      ws.send(
-        JSON.stringify({
-          type: 'session.update',
-          session: {
-            type: 'transcription',
-            audio: { input: { format: { type: 'audio/pcm', rate: 24000 }, transcription, turn_detection: null } },
-          },
-        }),
-      );
+      ws.send(this.sessionUpdate());
       this.open = true;
       for (const m of this.queue.splice(0)) ws.send(m);
     });
@@ -91,6 +164,14 @@ class OpenAITranscriber {
         case 'error': {
           const code = evt.error?.code ?? '';
           if (code === 'input_audio_buffer_commit_empty') break;
+          // The language prompt is optional: if this model refuses it, resend the session without it.
+          const about = `${evt.error?.param ?? ''} ${evt.error?.message ?? ''}`;
+          if (evt.type === 'error' && /prompt/i.test(about) && !promptRejected.has(this.model)) {
+            promptRejected.add(this.model);
+            this.log.warn({ model: this.model, error: evt.error }, 'stt refused the language prompt; continuing without it');
+            ws.send(this.sessionUpdate());
+            break;
+          }
           this.log.warn({ model: this.model, error: evt.error }, 'stt upstream error');
           if (FATAL_CODES.has(code)) {
             this.close();
@@ -143,6 +224,8 @@ interface Transcriber {
   append(pcm: Buffer): void;
   commit(): void | Promise<void>;
   close(): void;
+  /** Audio bytes sent to OpenAI per model (what we're billed for). Absent = free (mock). */
+  billed?: Map<string, number>;
 }
 
 function wav(pcm: Buffer, rate = 24_000): Buffer {
@@ -163,11 +246,13 @@ function wav(pcm: Buffer, rate = 24_000): Buffer {
 }
 
 /** Transcribe one finished utterance with the regular (non-realtime) endpoint. */
-async function transcribeFile(pcm: Buffer): Promise<string> {
+async function transcribeFile(pcm: Buffer, langs: Langs): Promise<string> {
   const form = new FormData();
   form.append('model', config.sttRestModel);
   form.append('file', new Blob([new Uint8Array(wav(pcm))], { type: 'audio/wav' }), 'speech.wav');
-  if (config.sttLanguages.length === 1) form.append('language', config.sttLanguages[0]!);
+  if (langs?.length === 1) form.append('language', langs[0]!);
+  const prompt = langPrompt(langs);
+  if (prompt) form.append('prompt', prompt);
   const res = await fetch(`${config.openaiBase}/audio/transcriptions`, {
     method: 'POST',
     headers: { authorization: `Bearer ${config.openaiKey}` },
@@ -181,6 +266,8 @@ async function transcribeFile(pcm: Buffer): Promise<string> {
 
 // Realtime models this project can't use right now → skip straight to per-utterance mode for a while.
 const realtimeBlockedUntil = new Map<string, number>();
+// Realtime models that refused the language prompt (sessions go without it from then on).
+const promptRejected = new Set<string>();
 
 /**
  * Streams to OpenAI realtime (word-by-word captions). If the project has no realtime access to the
@@ -196,23 +283,32 @@ class SmartTranscriber implements Transcriber {
   private seq = 0;
   private closed = false;
   private restFailed = false;
+  readonly billed = new Map<string, number>();
 
   constructor(
     private src: Src,
     private model: string,
+    private langs: Langs,
     private emit: Emit,
     private notice: (msg: string) => void,
     private log: FastifyRequest['log'],
   ) {
     if ((realtimeBlockedUntil.get(model) ?? 0) < Date.now()) {
-      this.rt = new OpenAITranscriber(model, emit, notice, log, (code) => this.fallBack(code));
+      this.rt = new OpenAITranscriber(model, langs, emit, notice, log, (code) => this.fallBack(code));
     }
   }
 
   append(pcm: Buffer) {
     this.current.push(pcm);
     this.currentBytes += pcm.length;
-    this.rt?.append(pcm);
+    if (this.rt) {
+      this.rt.append(pcm);
+      this.bill(this.model, pcm.length);
+    }
+  }
+
+  private bill(model: string, bytes: number) {
+    this.billed.set(model, (this.billed.get(model) ?? 0) + bytes);
   }
 
   commit() {
@@ -237,8 +333,9 @@ class SmartTranscriber implements Transcriber {
 
   private async viaFile(audio: Buffer) {
     const id = `utt_${this.src}_${++this.seq}`;
+    this.bill(config.sttRestModel, audio.length);
     try {
-      const text = (await transcribeFile(audio)).trim();
+      const text = (await transcribeFile(audio, this.langs)).trim();
       if (text && !this.closed) this.emit({ type: 'final', id, text });
     } catch (e: any) {
       this.log.warn({ err: e?.message, model: config.sttRestModel }, 'file transcription failed');
@@ -268,6 +365,7 @@ export async function listenRoutes(app: FastifyInstance) {
         if (!aiConfigured()) throw new HttpError(503, 'not_configured', 'AI is not configured on the server.');
         (req as any).user = user;
         (req as any).balance = await effectiveBalance(user.id);
+        (req as any).langs = parseLangs((req.query as Record<string, unknown> | undefined)?.lang);
       },
     },
     (socket, req) => {
@@ -278,6 +376,7 @@ export async function listenRoutes(app: FastifyInstance) {
       let charged = 0;
       let ticks = 0;
       let done = false;
+      let audioBytes = 0; // speech received from the app (both sources)
 
       const sendJson = (obj: unknown) => {
         if (socket.readyState === socket.OPEN) socket.send(JSON.stringify(obj));
@@ -290,12 +389,14 @@ export async function listenRoutes(app: FastifyInstance) {
         return;
       }
 
+      const langs = (req as any).langs as Langs;
       const make = (src: Src): Transcriber => {
-        const emit: Emit = (m) => sendJson({ ...m, src });
+        const emit = scriptGuard(langs, (m) => sendJson({ ...m, src }));
         if (config.mockAI) return new MockTranscriber(src, emit);
         return new SmartTranscriber(
           src,
           src === 'them' ? config.sttThem : config.sttYou,
+          langs,
           emit,
           (message) => sendJson({ type: 'notice', src, message }),
           req.log,
@@ -313,15 +414,39 @@ export async function listenRoutes(app: FastifyInstance) {
         return deduct(user.id, secs);
       };
 
+      // What the session cost us: audio minutes per transcription model.
+      const sttUsage = () => {
+        const perModel = new Map<string, number>();
+        for (const t of [stt.you, stt.them]) {
+          for (const [model, bytes] of t.billed ?? []) perModel.set(model, (perModel.get(model) ?? 0) + bytes);
+        }
+        let costMicros = 0;
+        for (const [model, bytes] of perModel) costMicros += sttCostMicros(model, bytes / PCM_BYTES_PER_SEC);
+        const models = [...perModel.keys()];
+        return { costMicros, model: models.length ? models.join(' + ') : config.mockAI ? 'mock' : null };
+      };
+
       const finish = (error?: string, message?: string) => {
         if (done) return;
         done = true;
         clearInterval(timer);
         clearInterval(pinger);
         const endedAt = Date.now();
+        const cost = sttUsage();
         charge(true)
           .then(() =>
-            charged > 0 ? logUsage({ userId: user.id, kind: 'live', seconds: charged, startedAt, endedAt }) : undefined,
+            charged > 0 || audioBytes > 0
+              ? logUsage({
+                  userId: user.id,
+                  kind: 'live',
+                  seconds: charged,
+                  startedAt,
+                  endedAt,
+                  model: cost.model,
+                  audioMs: Math.round((audioBytes / PCM_BYTES_PER_SEC) * 1000),
+                  costMicros: cost.costMicros,
+                })
+              : undefined,
           )
           .catch((e) => req.log.error({ err: e?.message, user: user.id, charged }, 'final live charge failed'));
         stt.you.close();
@@ -361,6 +486,7 @@ export async function listenRoutes(app: FastifyInstance) {
           const pcm = data.subarray(1);
           if (!src || pcm.length % 2) return;
           lastSpeech = Date.now(); // the client only uploads speech (VAD gate)
+          audioBytes += pcm.length;
           stt[src].append(Buffer.from(pcm));
           return;
         }
@@ -377,7 +503,7 @@ export async function listenRoutes(app: FastifyInstance) {
       socket.on('close', () => finish());
       socket.on('error', () => finish());
 
-      sendJson({ type: 'ready', balance_seconds: balance, mock: config.mockAI });
+      sendJson({ type: 'ready', balance_seconds: balance, mock: config.mockAI, languages: langs ?? 'auto' });
     },
   );
 }

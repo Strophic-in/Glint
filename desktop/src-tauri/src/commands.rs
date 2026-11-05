@@ -114,12 +114,13 @@ pub fn listen_start(
     system: bool,
     mic_device: Option<String>,
     system_device: Option<String>,
+    lang: Option<String>,
 ) -> R<()> {
     let token = state.token()?;
     state.stop_listen();
     let id = state.listen_seq.fetch_add(1, Ordering::SeqCst) + 1;
     let opts = AudioOpts { mic, system, mic_device, system_device };
-    let handle = listen::start(app.clone(), state.api.clone(), token, opts, id)
+    let handle = listen::start(app.clone(), state.api.clone(), token, opts, id, lang.as_deref().unwrap_or("en"))
         .map_err(|m| ApiError::local("audio", m))?;
     *state.listen.lock().unwrap() = Some(handle);
     Ok(())
@@ -136,11 +137,18 @@ pub fn ask(app: AppHandle, state: State<'_, AppState>, id: u64, body: Value, wit
     let token = state.token()?;
     let api = state.api.clone();
     let app2 = app.clone();
+    // Auto-answers are the most latency-sensitive: use the watcher's recent frame when there is
+    // one. A question the user asks gets a fresh capture (they may have just switched windows).
+    let auto = body.get("auto").and_then(Value::as_bool).unwrap_or(false);
+    let cached = if with_screen && auto { screen::fresh_frame(&state) } else { None };
     let task = tauri::async_runtime::spawn(async move {
         let mut body = body;
-        if with_screen {
+        if let Some(img) = cached {
+            body["image"] = Value::String(img);
+            let _ = app2.emit("answer", json!({ "id": id, "kind": "screen", "data": { "ms": 0, "cached": true } }));
+        } else if with_screen {
             let t0 = std::time::Instant::now();
-            match tauri::async_runtime::spawn_blocking(|| screen::capture_jpeg_b64(1600, 75)).await {
+            match tauri::async_runtime::spawn_blocking(screen::capture_jpeg_b64).await {
                 Ok(Ok(img)) => {
                     body["image"] = Value::String(img);
                     let _ = app2.emit("answer", json!({ "id": id, "kind": "screen", "data": { "ms": t0.elapsed().as_millis() as u64 } }));
@@ -230,19 +238,47 @@ pub fn set_protected(window: WebviewWindow, on: bool) {
 
 /// Size the window to its content and keep it fully on its monitor (the bubble can be dragged to
 /// an edge; expanding back to the full bar must not spill off-screen).
+///
+/// `left` is how far the main column sits from the window's left edge (the code panel, in logical
+/// px). When it changes, the window moves by the difference so the main column stays put on
+/// screen and the code panel opens to its left.
 #[tauri::command]
-pub fn resize(window: WebviewWindow, width: f64, height: f64) {
-    let _ = window.set_size(LogicalSize::new(width.clamp(40.0, 1400.0), height.clamp(40.0, 1100.0)));
-    let (Ok(Some(m)), Ok(pos)) = (window.current_monitor(), window.outer_position()) else { return };
+pub fn resize(window: WebviewWindow, state: State<'_, AppState>, width: f64, height: f64, left: Option<f64>) {
+    let (Ok(Some(m)), Ok(pos)) = (window.current_monitor(), window.outer_position()) else {
+        let _ = window.set_size(LogicalSize::new(width.clamp(40.0, 4000.0), height.clamp(40.0, 3000.0)));
+        return;
+    };
     let scale = m.scale_factor();
-    let (w, h) = ((width * scale) as i32, (height * scale) as i32);
     let (mx, my) = (m.position().x, m.position().y);
     let (mw, mh) = (m.size().width as i32, m.size().height as i32);
-    let x = pos.x.clamp(mx, (mx + mw - w).max(mx));
+    let w = ((width.max(40.0) * scale).round() as i32).min(mw);
+    let h = ((height.max(40.0) * scale).round() as i32).min(mh);
+    let left = (left.unwrap_or(0.0).max(0.0) * scale).round() as i32;
+    let prev_left = state.layout_left.swap(left, Ordering::SeqCst);
+    let x = (pos.x + prev_left - left).clamp(mx, (mx + mw - w).max(mx));
     let y = pos.y.clamp(my, (my + mh - h).max(my));
-    if (x, y) != (pos.x, pos.y) {
-        let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
-    }
+    win::set_bounds(&window, x, y, w, h);
+}
+
+/// "store" when installed from the Microsoft Store (it updates the app itself), else "direct".
+#[tauri::command]
+pub fn install_kind() -> &'static str {
+    let packaged = std::env::current_exe()
+        .map(|p| p.to_string_lossy().to_ascii_lowercase().contains(r"\windowsapps\"))
+        .unwrap_or(false);
+    if packaged { "store" } else { "direct" }
+}
+
+/// Start a corner resize (call on pointerdown on the resize grip).
+#[tauri::command]
+pub fn resize_drag(app: AppHandle) {
+    win::track_resize(&app);
+}
+
+/// Keep a recent screen frame while live, so auto-answers can include the screen instantly.
+#[tauri::command]
+pub fn set_screen_watch(app: AppHandle, on: bool) {
+    screen::watch(&app, on);
 }
 
 /// Start moving the overlay with the mouse (call on pointerdown on a drag area).
@@ -301,8 +337,138 @@ pub fn hide(app: AppHandle) {
     win::conceal(&app);
 }
 
+static QUITTING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Quit from the menu or tray: the UI first saves an open session (it calls `quit_now` when done).
+/// If the UI doesn't answer, Glint exits anyway after a few seconds.
+pub fn request_quit(app: &AppHandle) {
+    if QUITTING.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let _ = app.emit("quit-requested", ());
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(12));
+        quit_now(app);
+    });
+}
+
 #[tauri::command]
 pub fn quit(app: AppHandle) {
+    request_quit(&app);
+}
+
+#[tauri::command]
+pub fn quit_now(app: AppHandle) {
     app.state::<AppState>().stop_listen();
     app.exit(0);
+}
+
+/// End-of-session review: the whole text at once (it goes into the session file).
+#[tauri::command]
+pub async fn session_review(state: State<'_, AppState>, body: Value) -> R<String> {
+    let token = state.token()?;
+    let api = state.api.clone();
+    api::collect_answer(&api, &token, body).await
+}
+
+fn sessions_folder(app: &AppHandle) -> R<std::path::PathBuf> {
+    let docs = app.path().document_dir().map_err(|e| ApiError::local("files", e.to_string()))?;
+    Ok(docs.join("Glint Sessions"))
+}
+
+/// Write a session file into Documents\Glint Sessions and return its path. Written to a temp file
+/// and renamed, so an autosave cut short by a crash never leaves half a file.
+#[tauri::command]
+pub fn save_session(app: AppHandle, file_name: String, content: String) -> R<String> {
+    let dir = sessions_folder(&app)?;
+    std::fs::create_dir_all(&dir).map_err(|e| ApiError::local("files", e.to_string()))?;
+    let clean: String = file_name
+        .chars()
+        .map(|c| if c.is_control() || r#"<>:"/\|?*"#.contains(c) { '-' } else { c })
+        .take(120)
+        .collect();
+    let clean = clean.trim().trim_end_matches('.').to_string();
+    let name = match clean.as_str() {
+        "" => "Glint session.md".to_string(),
+        n if n.to_ascii_lowercase().ends_with(".md") => n.to_string(),
+        n => format!("{n}.md"),
+    };
+    let path = dir.join(name);
+    let tmp = path.with_extension("md.tmp");
+    std::fs::write(&tmp, content.as_bytes()).map_err(|e| ApiError::local("files", e.to_string()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| ApiError::local("files", e.to_string()))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn sessions_dir(app: AppHandle) -> R<String> {
+    Ok(sessions_folder(&app)?.to_string_lossy().into_owned())
+}
+
+/// Show a saved session in Explorer (or open the sessions folder).
+#[tauri::command]
+pub fn reveal_path(app: AppHandle, path: String) {
+    let p = std::path::PathBuf::from(&path);
+    if p.is_dir() {
+        let _ = app.opener().open_path(path, None::<&str>);
+    } else {
+        let _ = app.opener().reveal_item_in_dir(p);
+    }
+}
+
+#[derive(serde::Serialize)]
+pub struct MonitorInfo {
+    name: String,
+    width: u32,
+    height: u32,
+    primary: bool,
+}
+
+#[tauri::command]
+pub fn list_monitors(window: WebviewWindow) -> Vec<MonitorInfo> {
+    let primary = window.primary_monitor().ok().flatten().and_then(|m| m.name().cloned());
+    window
+        .available_monitors()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|m| {
+            let name = m.name().cloned().unwrap_or_default();
+            MonitorInfo { primary: primary.as_deref() == Some(name.as_str()), width: m.size().width, height: m.size().height, name }
+        })
+        .collect()
+}
+
+/// Move the overlay to a preset spot on a monitor ("" = the one it's on). The main column is what
+/// gets placed; a code panel to its left goes with it. Content growing later keeps it on screen.
+#[tauri::command]
+pub fn place_window(window: WebviewWindow, state: State<'_, AppState>, monitor: String, anchor: String) {
+    let monitors = window.available_monitors().unwrap_or_default();
+    let m = monitors
+        .into_iter()
+        .find(|m| !monitor.is_empty() && m.name().map(String::as_str) == Some(monitor.as_str()))
+        .or_else(|| window.current_monitor().ok().flatten())
+        .or_else(|| window.primary_monitor().ok().flatten());
+    let (Some(m), Ok(size)) = (m, window.outer_size()) else { return };
+    let (w, h) = (size.width as i32, size.height as i32);
+    let (mx, my) = (m.position().x, m.position().y);
+    let (mw, mh) = (m.size().width as i32, m.size().height as i32);
+    let scale = m.scale_factor();
+    let margin = (14.0 * scale) as i32;
+    let taskbar = (56.0 * scale) as i32;
+    let left = state.layout_left.load(Ordering::SeqCst);
+    let main_w = w - left;
+    let main_x = match anchor.as_str() {
+        "top-left" | "bottom-left" => mx + margin,
+        "top-right" | "bottom-right" => mx + mw - main_w - margin,
+        _ => mx + (mw - main_w) / 2,
+    };
+    let y = match anchor.as_str() {
+        a if a.starts_with("bottom") => my + mh - h - taskbar,
+        "center" => my + (mh - h) / 2,
+        _ => my + margin,
+    };
+    let x = (main_x - left).clamp(mx, (mx + mw - w).max(mx));
+    let y = y.clamp(my, (my + mh - h).max(my));
+    win::set_bounds(&window, x, y, w, h);
 }

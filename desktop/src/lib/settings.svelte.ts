@@ -15,6 +15,24 @@ export interface Doc {
   chars: number;
 }
 
+export type Anchor = 'top-center' | 'top-left' | 'top-right' | 'center' | 'bottom-center';
+
+export const ANCHORS: { id: Anchor; label: string }[] = [
+  { id: 'top-left', label: 'Top left' },
+  { id: 'top-center', label: 'Top centre' },
+  { id: 'top-right', label: 'Top right' },
+  { id: 'center', label: 'Centre' },
+  { id: 'bottom-center', label: 'Bottom centre' },
+];
+
+/** Size presets for the main column (CSS px); "Full width" is worked out from the screen. */
+export const SIZES = [
+  { id: 'compact', label: 'Compact', width: 560, answerHeight: 300 },
+  { id: 'default', label: 'Default', width: 720, answerHeight: 420 },
+  { id: 'large', label: 'Large', width: 960, answerHeight: 620 },
+  { id: 'full', label: 'Full width', width: 0, answerHeight: 0 },
+] as const;
+
 export interface Settings {
   mode: Mode;
   context: string;
@@ -24,8 +42,24 @@ export interface Settings {
   /** Answer model id from the server's list; '' = server default. */
   model: string;
   language: string;
+  /** What the call is transcribed as: ISO codes ("en", "en,hi") or "auto". English by default so
+   *  noise and accents don't get transcribed as another language. */
+  speechLanguage: string;
   autoAnswer: boolean;
+  /** Attach the screen to Answer and typed questions. */
   screen: boolean;
+  /** Also attach it to auto-answers (sees what someone is sharing in the call). */
+  screenAuto: boolean;
+  /** Put code from answers in a panel to the left of the explanation. */
+  codePanel: boolean;
+  /** Which side of the answer the code panel opens on. */
+  codeSide: 'left' | 'right';
+  /** Where Glint appears at startup: a monitor name ('' = main display) and a spot on it. */
+  placeMonitor: string;
+  placeAnchor: Anchor;
+  /** Main column width and answer height, set by dragging the corner grip (CSS px). */
+  width: number;
+  answerHeight: number;
   mic: boolean;
   system: boolean;
   micDevice: string;
@@ -54,8 +88,16 @@ const DEFAULTS: Settings = {
   zoom: 1,
   model: '',
   language: 'English',
+  speechLanguage: 'en',
   autoAnswer: true,
   screen: true,
+  screenAuto: true,
+  codePanel: true,
+  codeSide: 'left',
+  placeMonitor: '',
+  placeAnchor: 'top-center',
+  width: 720,
+  answerHeight: 420,
   mic: true,
   system: true,
   micDevice: '',
@@ -152,6 +194,20 @@ export const MODES: ModeInfo[] = [
     placeholder: 'Anything Glint should know about you or what you are working on.',
     fields: [],
   },
+];
+
+/** Limits for the corner grip. */
+export const SIZE = { minWidth: 480, maxWidth: 1400, minAnswer: 140, maxAnswer: 1000 };
+
+export const SPEECH_LANGUAGES: { id: string; label: string }[] = [
+  { id: 'en', label: 'English' },
+  { id: 'en,hi', label: 'English + Hindi (Hinglish)' },
+  { id: 'hi', label: 'Hindi' },
+  { id: 'es', label: 'Spanish' },
+  { id: 'fr', label: 'French' },
+  { id: 'de', label: 'German' },
+  { id: 'pt', label: 'Portuguese' },
+  { id: 'auto', label: 'Detect automatically' },
 ];
 
 export const LANGUAGES = ['English', 'Hinglish', 'Hindi', 'Spanish', 'French', 'German', 'Portuguese', 'Arabic', 'Japanese'];

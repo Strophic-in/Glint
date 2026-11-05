@@ -7,6 +7,7 @@
   import Icon from './Icon.svelte';
   import Keys from './Keys.svelte';
   import Spark from './Spark.svelte';
+  import { recorder } from '../lib/recorder.svelte';
 
   let now = $state(Date.now());
   $effect(() => {
@@ -84,8 +85,16 @@
   {#if glint.phase === 'ready'}
     <button class="chip" class:active={glint.view === 'session'} onclick={() => toggleView('session')} title="Session setup: type, company, resume, model">
       <Icon name={modeIcon} size={14} />
-      <span class="chip-text">{sessionLabel()}</span>
+      <!-- While recording, the REC timer needs the room: the chip shows just its icon. -->
+      {#if !recorder.active && !recorder.finishing}<span class="chip-text">{sessionLabel()}</span>{/if}
     </button>
+    {#if recorder.active || recorder.finishing}
+      {@const secs = Math.max(0, Math.floor((now - recorder.startedAt) / 1000))}
+      <button class="rec" onclick={() => recorder.end()} disabled={recorder.finishing} title="End the session and save it">
+        <span class="dot"></span>
+        {#if recorder.finishing}Saving…{:else}{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}<span class="end">End</span>{/if}
+      </button>
+    {/if}
 
     <button
       class="btn listen"
@@ -148,6 +157,40 @@
 </header>
 
 <style>
+  .rec {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    height: 30px;
+    padding: 0 6px 0 9px;
+    margin-right: 4px;
+    border-radius: 15px;
+    border: 1px solid rgba(255, 90, 95, 0.45);
+    background: rgba(255, 90, 95, 0.12);
+    color: #ff8f93;
+    font-size: 12px;
+    font-weight: 650;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .rec .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--live);
+    animation: pulse 1.4s ease-in-out infinite;
+  }
+  .rec .end {
+    margin-left: 2px;
+    padding: 2px 7px;
+    border-radius: 10px;
+    background: rgba(255, 90, 95, 0.22);
+    color: #ffd0d2;
+    font-size: 11px;
+  }
+  .rec:hover:not(:disabled) .end {
+    background: rgba(255, 90, 95, 0.4);
+  }
   .bar {
     height: 48px;
     display: flex;

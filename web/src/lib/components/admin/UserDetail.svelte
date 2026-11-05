@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import { api, errorMessage, type AdminUserDetail } from '$lib/api';
   import { toasts } from '$lib/toast.svelte';
-  import { formatBalance, formatDate, formatDateTime, formatDuration, formatINR } from '$lib/format';
+  import { formatBalance, formatCostINR, formatDate, formatDateTime, formatDuration, formatINR, formatUSD } from '$lib/format';
 
   let { id, onclose }: { id: string; onclose: () => void } = $props();
 
@@ -12,6 +12,7 @@
   let minutes = $state(60);
   let note = $state('');
   let reason = $state('');
+  let confirmRemoveAll = $state(false);
 
   async function load() {
     error = '';
@@ -40,6 +41,11 @@
       () => api.admin.time(id, sign * Math.round(minutes * 60), note.trim()),
       `${sign > 0 ? 'Added' : 'Deducted'} ${minutes} min.`
     );
+  const removeAll = () =>
+    act(async () => {
+      await api.admin.removeAllTime(id, note.trim());
+      confirmRemoveAll = false;
+    }, 'Removed all remaining time.');
   const block = () => act(() => api.admin.block(id, reason.trim()), 'User blocked. Live session ended.');
   const unblock = () => act(() => api.admin.unblock(id), 'User unblocked.');
   const logout = () => act(() => api.admin.logout(id), 'Signed out on every device.');
@@ -52,6 +58,18 @@
     admin_deduct: 'Deducted by admin',
     expired: 'Expired'
   };
+
+  const tokens = (n: number) => (n >= 1e6 ? `${(n / 1e6).toFixed(2)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n));
+
+  // What this user cost us vs what they paid (revenue incl. GST, before payment fees).
+  const money = $derived.by(() => {
+    if (!d) return null;
+    const t = d.totals;
+    const costMicros = t.stt_cost_micros + t.answer_cost_micros;
+    const revenue = t.paid_paise / 100;
+    const marginAmount = revenue - (costMicros / 1e6) * d.usd_inr;
+    return { costMicros, revenue, marginAmount, marginPct: revenue > 0 ? Math.round((marginAmount / revenue) * 100) : null };
+  });
 
   onMount(load);
 </script>
@@ -91,8 +109,49 @@
       <div class="row">
         <button class="btn btn-sm btn-primary" disabled={busy || !minutes} onclick={() => changeTime(1)}>Add time</button>
         <button class="btn btn-sm" disabled={busy || !minutes} onclick={() => changeTime(-1)}>Deduct</button>
+        <button class="btn btn-sm danger" disabled={busy || d.user.balance_seconds <= 0} onclick={() => (confirmRemoveAll = true)}>
+          Remove all time
+        </button>
       </div>
+      {#if confirmRemoveAll}
+        <div class="confirm" role="alert">
+          <p class="small">
+            Remove all <b>{formatBalance(d.user.balance_seconds)}</b> from {d.user.email}? They won't be able to go live
+            until they buy or are given more time.
+          </p>
+          <div class="row">
+            <button class="btn btn-sm danger" disabled={busy} onclick={removeAll}>Yes, remove all</button>
+            <button class="btn btn-sm btn-ghost" disabled={busy} onclick={() => (confirmRemoveAll = false)}>Cancel</button>
+          </div>
+        </div>
+      {/if}
     </article>
+
+    {#if money}
+      <article class="card box">
+        <span class="label">AI cost</span>
+        <span class="big">{formatCostINR(money.costMicros, d.usd_inr)}</span>
+        <span class="muted small">{formatUSD(money.costMicros)} at OpenAI list prices</span>
+        <dl class="facts">
+          <dt>Captions</dt>
+          <dd>
+            {formatCostINR(d.totals.stt_cost_micros, d.usd_inr)}
+            <span class="muted">· {d.totals.sessions} sessions, {formatDuration(d.totals.live_seconds)} live, {Math.round(d.totals.audio_ms / 60000)} min audio</span>
+          </dd>
+          <dt>Answers</dt>
+          <dd>
+            {formatCostINR(d.totals.answer_cost_micros, d.usd_inr)}
+            <span class="muted">· {d.totals.answers} answers, {tokens(d.totals.input_tokens)} in ({tokens(d.totals.cached_tokens)} cached) / {tokens(d.totals.output_tokens)} out</span>
+          </dd>
+          <dt>Paid</dt>
+          <dd>{money.revenue ? formatINR(money.revenue) : '—'}</dd>
+          <dt>Margin</dt>
+          <dd class:neg={money.marginAmount < 0} class:pos={money.marginAmount > 0}>
+            {formatINR(money.marginAmount)}{money.marginPct === null ? '' : ` (${money.marginPct}%)`}
+          </dd>
+        </dl>
+      </article>
+    {/if}
 
     <article class="card box">
       <span class="label">Access</span>
@@ -156,7 +215,7 @@
       <h3>Usage</h3>
       <div class="table-wrap">
         <table class="table">
-          <thead><tr><th>Started</th><th>Type</th><th>Charged</th><th>Model</th><th>Tokens in / out</th></tr></thead>
+          <thead><tr><th>Started</th><th>Type</th><th>Charged</th><th>Model</th><th>Tokens in / out · audio</th><th>AI cost</th></tr></thead>
           <tbody>
             {#each d.usage as u}
               <tr>
@@ -164,10 +223,20 @@
                 <td>{u.kind === 'live' ? 'Live session' : 'Answer'}</td>
                 <td>{u.seconds ? formatDuration(u.seconds) : 'Included'}</td>
                 <td class="mono">{u.model ?? '—'}</td>
-                <td>{u.input_tokens ?? '—'} / {u.output_tokens ?? '—'}</td>
+                <td>
+                  {#if u.kind === 'live'}
+                    {u.audio_ms != null ? `${(u.audio_ms / 60000).toFixed(1)} min audio` : '—'}
+                  {:else}
+                    {u.input_tokens ?? '—'}{u.cached_tokens ? ` (${u.cached_tokens} cached)` : ''} / {u.output_tokens ?? '—'}
+                    {#if u.service_tier === 'priority' || u.service_tier === 'fast'}<span class="muted"> · fast</span>{/if}
+                  {/if}
+                </td>
+                <td class="nowrap" title={u.cost_micros != null ? formatUSD(u.cost_micros) : ''}>
+                  {u.cost_micros != null ? formatCostINR(u.cost_micros, d.usd_inr) : '—'}
+                </td>
               </tr>
             {:else}
-              <tr><td colspan="5" class="muted">No usage yet.</td></tr>
+              <tr><td colspan="6" class="muted">No usage yet.</td></tr>
             {/each}
           </tbody>
         </table>
@@ -277,6 +346,14 @@
   .row .input {
     max-width: 120px;
   }
+  .confirm {
+    display: grid;
+    gap: 10px;
+    padding: 12px 14px;
+    border: 1px solid rgba(255, 107, 107, 0.35);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 107, 107, 0.06);
+  }
   .danger {
     background: rgba(255, 107, 107, 0.14);
     border-color: rgba(255, 107, 107, 0.35);
@@ -300,6 +377,27 @@
   }
   .neg {
     color: var(--danger);
+  }
+  .pos {
+    color: var(--ok);
+  }
+  .facts {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px 12px;
+    margin: 4px 0 0;
+    font-size: 13.5px;
+  }
+  .facts dt {
+    color: var(--muted);
+  }
+  .facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .nowrap {
+    white-space: nowrap;
   }
   .ua {
     max-width: 280px;

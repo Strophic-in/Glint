@@ -4,6 +4,7 @@
  */
 import postgres from 'postgres';
 import { config } from './config.js';
+import { answerCostMicros, sttCostMicros } from './pricing.js';
 
 if (!config.databaseUrl) {
   throw new Error(
@@ -149,6 +150,12 @@ CREATE TABLE IF NOT EXISTS trial_claims (
   email_hash text PRIMARY KEY,
   created_at bigint NOT NULL
 );
+
+-- v3: what each usage row cost us (USD micro-dollars), for the admin panel.
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS cached_tokens integer;
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS audio_ms integer;
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS cost_micros bigint;
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS service_tier text;
 `;
 
 /** Create/upgrade tables. Safe to run on every boot and from several instances at once. */
@@ -156,7 +163,34 @@ export async function migrate() {
   await sql.begin(async (tx) => {
     await tx`SELECT pg_advisory_xact_lock(7461001)`;
     await tx.unsafe(SCHEMA);
+    await backfillCosts(tx);
   });
+}
+
+/**
+ * Estimate cost for usage rows logged before costs were recorded (runs until none are left).
+ * Answers: their tokens at the configured service tier. Live sessions: audio wasn't measured, so
+ * assume the other side speaks ~45% and the user ~40% of the session (docs/PRODUCT.md).
+ */
+async function backfillCosts(tx: postgres.TransactionSql) {
+  const rows = await tx<{ id: number; kind: string; seconds: number; model: string | null; input_tokens: number | null; output_tokens: number | null }[]>`
+    SELECT id, kind, seconds, model, input_tokens, output_tokens FROM usage WHERE cost_micros IS NULL`;
+  if (!rows.length) return;
+  const ids: number[] = [];
+  const costs: number[] = [];
+  for (const r of rows) {
+    ids.push(r.id);
+    costs.push(
+      r.kind === 'answer'
+        ? answerCostMicros({ model: r.model, tier: config.serviceTier, input: r.input_tokens, output: r.output_tokens })
+        : sttCostMicros(config.sttThem, r.seconds * 0.45) + sttCostMicros(config.sttYou, r.seconds * 0.4),
+    );
+  }
+  await tx`
+    UPDATE usage SET cost_micros = v.cost
+    FROM (SELECT unnest(string_to_array(${ids.join(',')}, ',')::bigint[]) AS id,
+                 unnest(string_to_array(${costs.join(',')}, ',')::bigint[]) AS cost) v
+    WHERE usage.id = v.id`;
 }
 
 export async function closeDb() {
@@ -254,10 +288,17 @@ export async function logUsage(u: {
   endedAt: number;
   model?: string | null;
   inputTokens?: number | null;
+  cachedTokens?: number | null;
   outputTokens?: number | null;
+  audioMs?: number | null;
+  serviceTier?: string | null;
+  /** What the row cost us in USD micro-dollars (see pricing.ts). */
+  costMicros: number;
 }) {
   await sql`
-    INSERT INTO usage (user_id, kind, seconds, started_at, ended_at, model, input_tokens, output_tokens)
+    INSERT INTO usage (user_id, kind, seconds, started_at, ended_at, model, input_tokens, cached_tokens, output_tokens,
+                       audio_ms, service_tier, cost_micros)
     VALUES (${u.userId}, ${u.kind}, ${u.seconds}, ${u.startedAt}, ${u.endedAt},
-            ${u.model ?? null}, ${u.inputTokens ?? null}, ${u.outputTokens ?? null})`;
+            ${u.model ?? null}, ${u.inputTokens ?? null}, ${u.cachedTokens ?? null}, ${u.outputTokens ?? null},
+            ${u.audioMs ?? null}, ${u.serviceTier ?? null}, ${u.costMicros})`;
 }

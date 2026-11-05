@@ -1,13 +1,20 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { api, errorMessage, type AdminStats } from '$lib/api';
-  import { formatINR } from '$lib/format';
+  import { formatCostINR, formatINR, formatUSD } from '$lib/format';
 
   let stats = $state<AdminStats | null>(null);
   let error = $state('');
 
   const hours = (s: number) => `${(s / 3600).toFixed(s < 36000 ? 1 : 0)} h`;
   const num = (n: number) => n.toLocaleString('en-IN');
+
+  // Margin = revenue (incl. GST, before payment fees) minus AI cost converted at the admin's rate.
+  const margin = (w: AdminStats['cost']['windows'][number], usdInr: number) => {
+    const cost = ((w.stt_micros + w.answer_micros) / 1e6) * usdInr;
+    const revenue = w.revenue_paise / 100;
+    return { amount: revenue - cost, pct: revenue > 0 ? Math.round(((revenue - cost) / revenue) * 100) : null };
+  };
 
   async function load() {
     error = '';
@@ -67,12 +74,38 @@
     </article>
   </div>
 
+  <section class="costs">
+    <div class="head">
+      <h2>AI cost vs revenue</h2>
+      <span class="muted note">OpenAI list prices · $1 = ₹{stats.cost.usd_inr} (change in Controls)</span>
+    </div>
+    <div class="grid">
+      {#each stats.cost.windows as w}
+        {@const m = margin(w, stats.cost.usd_inr)}
+        <article class="card stat">
+          <span class="label">AI cost · {w.label}</span>
+          <span class="big">{formatCostINR(w.stt_micros + w.answer_micros, stats.cost.usd_inr)}</span>
+          <span class="muted sub">
+            {formatUSD(w.stt_micros + w.answer_micros)} · captions {formatCostINR(w.stt_micros, stats.cost.usd_inr)} · answers
+            {formatCostINR(w.answer_micros, stats.cost.usd_inr)}
+          </span>
+          <span class="sub">
+            Revenue {formatINR(w.revenue_paise / 100)} ·
+            <span class:neg={m.amount < 0} class:pos={m.amount > 0}>
+              margin {formatINR(m.amount)}{m.pct === null ? '' : ` (${m.pct}%)`}
+            </span>
+          </span>
+        </article>
+      {/each}
+    </div>
+  </section>
+
   <div class="card daily">
     <h2>Last 14 days</h2>
     <div class="table-wrap">
       <table class="table">
         <thead>
-          <tr><th>Day</th><th>Sign-ups</th><th>Revenue</th><th>Live time</th><th>Answers</th></tr>
+          <tr><th>Day</th><th>Sign-ups</th><th>Revenue</th><th>AI cost</th><th>Live time</th><th>Answers</th></tr>
         </thead>
         <tbody>
           {#each stats.daily as d}
@@ -80,6 +113,7 @@
               <td>{new Date(d.day).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' })}</td>
               <td>{d.signups}</td>
               <td>{d.revenue_paise ? formatINR(d.revenue_paise / 100) : '—'}</td>
+              <td>{d.cost_micros ? formatCostINR(d.cost_micros, stats.cost.usd_inr) : '—'}</td>
               <td>{d.live_seconds ? hours(d.live_seconds) : '—'}</td>
               <td>{d.answers || '—'}</td>
             </tr>
@@ -120,6 +154,26 @@
   }
   .daily {
     padding: 20px 22px;
+  }
+  .costs .head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px 16px;
+    flex-wrap: wrap;
+    margin-bottom: 12px;
+  }
+  .costs .head h2 {
+    margin: 0;
+  }
+  .note {
+    font-size: 13px;
+  }
+  .pos {
+    color: var(--ok);
+  }
+  .neg {
+    color: var(--danger);
   }
   h2 {
     font-size: 17px;

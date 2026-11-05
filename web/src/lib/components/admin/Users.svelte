@@ -1,11 +1,13 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { api, errorMessage, type AdminUser } from '$lib/api';
-  import { formatBalance, formatDate, formatDateTime, formatINR } from '$lib/format';
+  import { api, errorMessage, type AdminUser, type AdminUserSort } from '$lib/api';
+  import { formatBalance, formatCostINR, formatDate, formatDateTime, formatDuration, formatINR, formatUSD } from '$lib/format';
   import UserDetail from './UserDetail.svelte';
 
   let q = $state('');
   let filter = $state('all');
+  let sort = $state<AdminUserSort>('recent');
+  let usdInr = $state(88);
   let users = $state<AdminUser[]>([]);
   let total = $state(0);
   let loading = $state(true);
@@ -20,13 +22,21 @@
     { id: 'blocked', label: 'Blocked' }
   ];
 
+  const SORTS: { id: AdminUserSort; label: string }[] = [
+    { id: 'recent', label: 'Newest first' },
+    { id: 'cost', label: 'Highest AI cost' },
+    { id: 'usage', label: 'Most time used' },
+    { id: 'paid', label: 'Top payers' }
+  ];
+
   async function load(more = false) {
     loading = true;
     error = '';
     try {
-      const r = await api.admin.users(q.trim(), filter, more ? users.length : 0);
+      const r = await api.admin.users(q.trim(), filter, more ? users.length : 0, sort);
       users = more ? [...users, ...r.users] : r.users;
       total = r.total;
+      usdInr = r.usd_inr ?? usdInr;
     } catch (e) {
       error = errorMessage(e);
     } finally {
@@ -52,6 +62,14 @@
         <button class="chip" class:on={filter === f.id} onclick={() => ((filter = f.id), load())}>{f.label}</button>
       {/each}
     </div>
+    <select
+      class="input sort"
+      value={sort}
+      onchange={(e) => ((sort = e.currentTarget.value as AdminUserSort), load())}
+      aria-label="Sort users"
+    >
+      {#each SORTS as s}<option value={s.id}>{s.label}</option>{/each}
+    </select>
   </div>
 
   {#if error}
@@ -61,7 +79,7 @@
       <div class="table-wrap">
         <table class="table">
           <thead>
-            <tr><th>User</th><th>Joined</th><th>Last seen</th><th>Balance</th><th>Paid</th><th>Status</th></tr>
+            <tr><th>User</th><th>Joined</th><th>Balance</th><th>Paid</th><th>Used</th><th>AI cost</th><th>Status</th></tr>
           </thead>
           <tbody>
             {#each users as u (u.id)}
@@ -70,15 +88,22 @@
                   <div class="who">
                     {#if u.picture}<img src={u.picture} alt="" referrerpolicy="no-referrer" />{:else}<span class="av">{(u.name || u.email)[0]?.toUpperCase()}</span>{/if}
                     <div>
-                      <div class="email">{u.email}</div>
+                      <div class="email" title={u.email}>{u.email}</div>
                       {#if u.name}<div class="muted small">{u.name}</div>{/if}
                     </div>
                   </div>
                 </td>
-                <td>{formatDate(u.created_at)}</td>
-                <td>{formatDateTime(u.last_seen_at)}</td>
+                <td class="nowrap">
+                  {formatDate(u.created_at)}
+                  <div class="muted small">seen {formatDateTime(u.last_seen_at)}</div>
+                </td>
                 <td class="num">{formatBalance(u.balance_seconds)}</td>
                 <td class="num">{u.paid_paise ? formatINR(u.paid_paise / 100) : '—'}</td>
+                <td class="num">
+                  {u.used_seconds ? formatDuration(u.used_seconds) : '—'}
+                  {#if u.answers}<div class="muted small">{u.answers} answers</div>{/if}
+                </td>
+                <td class="num" title={formatUSD(u.cost_micros)}>{u.cost_micros ? formatCostINR(u.cost_micros, usdInr) : '—'}</td>
                 <td>
                   {#if u.blocked}<span class="badge bad">Blocked</span>{/if}
                   {#if u.live}<span class="badge badge-live"><span class="dot dot-pulse"></span> Live</span>{/if}
@@ -86,7 +111,7 @@
                 </td>
               </tr>
             {:else}
-              <tr><td colspan="6" class="muted empty">{loading ? 'Loading…' : 'No users match.'}</td></tr>
+              <tr><td colspan="7" class="muted empty">{loading ? 'Loading…' : 'No users match.'}</td></tr>
             {/each}
           </tbody>
         </table>
@@ -116,6 +141,18 @@
   .chips {
     display: flex;
     gap: 6px;
+    flex-wrap: wrap;
+  }
+  .sort {
+    width: auto;
+    height: 36px;
+    padding: 0 12px;
+    margin-left: auto;
+  }
+  @media (max-width: 640px) {
+    .sort {
+      margin-left: 0;
+    }
   }
   .chip {
     height: 32px;
@@ -160,8 +197,18 @@
     font-weight: 700;
     font-size: 13px;
   }
+  .who > div {
+    min-width: 0;
+  }
   .email {
     font-weight: 550;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .nowrap {
+    white-space: nowrap;
   }
   .small {
     font-size: 12.5px;

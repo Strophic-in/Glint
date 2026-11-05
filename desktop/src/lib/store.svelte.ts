@@ -30,7 +30,9 @@ export interface Answer {
 export interface Notice {
   kind: 'info' | 'warn' | 'error' | 'balance';
   message: string;
-  action?: 'buy' | 'retry' | 'signin';
+  action?: 'buy' | 'retry' | 'signin' | 'reveal';
+  /** File to show in Explorer for action 'reveal'. */
+  path?: string;
 }
 
 const LABELS: Record<Action, string> = {
@@ -98,6 +100,8 @@ class Glint {
 
   private seq = 0;
   private lastAnswer: { question: string; text: string } | null = null;
+  /** Session recording hooks in here (see recorder.svelte.ts). */
+  onAnswerDone: ((a: Answer) => void) | null = null;
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
   private autoAnsweredId = '';
   private noticeTimer: ReturnType<typeof setTimeout> | undefined;
@@ -210,7 +214,13 @@ class Glint {
       if (this.balance <= 0) return this.outOfTime();
       this.listen = 'connecting';
       try {
-        await ipc.listenStart(settings.mic, settings.system, settings.micDevice || null, settings.speakerDevice || null);
+        await ipc.listenStart(
+          settings.mic,
+          settings.system,
+          settings.micDevice || null,
+          settings.speakerDevice || null,
+          settings.speechLanguage || 'en',
+        );
       } catch (e) {
         this.listen = 'error';
         this.notify({ kind: 'error', message: errorMessage(e) }, 8000);
@@ -306,9 +316,11 @@ class Glint {
     const followup = action === 'shorter' || action === 'expand' || action === 'followups';
     if (followup && !this.lastAnswer) return;
     // Smart default: with nothing heard yet, the screen is the only context, so always include it.
+    // Auto-answers include it too when enabled, so they see whatever is being shared in the call.
     const withScreen =
       action === 'screen' ||
-      (!opts.auto && (action === 'answer' || action === 'ask') && (settings.screen || transcript.length === 0));
+      ((action === 'answer' || action === 'ask') &&
+        (opts.auto ? settings.screen && settings.screenAuto : settings.screen || transcript.length === 0));
     const id = ++this.seq;
     const question = opts.question?.trim() ?? '';
     this.answer = {
@@ -381,6 +393,7 @@ class Glint {
         if (this.collapsed) this.unread = true;
         if (typeof data?.balance_seconds === 'number') this.setBalance(data.balance_seconds);
         this.lastAnswer = { question: a.question || a.label, text: a.text };
+        this.onAnswerDone?.(a);
         break;
       case 'error':
         this.failAnswer(id, data);

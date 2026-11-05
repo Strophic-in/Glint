@@ -22,6 +22,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(state::AppState::new())
         .setup(|app| {
             let handle = app.handle().clone();
@@ -63,14 +64,24 @@ pub fn run() {
             commands::set_typing,
             commands::set_protected,
             commands::resize,
+            commands::resize_drag,
+            commands::set_screen_watch,
             commands::set_zoom,
             commands::drag_window,
             commands::pick_document,
             commands::list_mics,
             commands::list_outputs,
             commands::open_url,
+            commands::install_kind,
             commands::hide,
             commands::quit,
+            commands::quit_now,
+            commands::session_review,
+            commands::save_session,
+            commands::sessions_dir,
+            commands::reveal_path,
+            commands::list_monitors,
+            commands::place_window,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Glint");
@@ -90,10 +101,7 @@ fn build_tray(app: &tauri::App) -> tauri::Result<()> {
             "toggle" => shortcuts::handle(app, "toggle"),
             "settings" => shortcuts::handle(app, "settings"),
             "hide" => win::conceal(app),
-            "quit" => {
-                app.state::<state::AppState>().stop_listen();
-                app.exit(0);
-            }
+            "quit" => commands::request_quit(app),
             _ => {}
         })
         .on_tray_icon_event(|tray, event| {

@@ -109,6 +109,24 @@ for await (const chunk of res.body) {
 ok(text.includes('**Say:**') && doneEvt, `answer streamed (${text.length} chars, first token ${firstTokenMs} ms)`);
 ok(doneEvt?.balance_seconds === before - 30, `answer charged 30s (${before} → ${doneEvt?.balance_seconds})`);
 
+// End-of-session review: free, reads the whole session, and is rate limited.
+{
+  const body = JSON.stringify({ action: 'summary', transcript: [{ who: 'them', text: 'Why this company?' }, { who: 'you', text: 'Because of the mission.' }], profile: { mode: 'interview' } });
+  const send = () => fetch(API + '/v1/answer', { method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${desk}` }, body });
+  const r = await send();
+  const out = await r.text();
+  ok(r.status === 200 && /event: done/.test(out), 'session review streamed');
+  const after = (await j('/v1/me', { token: desk })).data.balance_seconds;
+  ok(after === doneEvt?.balance_seconds, `session review is free (${doneEvt?.balance_seconds} → ${after})`);
+  const codes = []; // 4 per hour: the 5th request in a row is refused
+  for (let i = 0; i < 4; i++) {
+    const x = await send();
+    codes.push(x.status);
+    await x.text();
+  }
+  ok(codes.join(',') === '200,200,200,429', `session reviews are rate limited (${codes.join(',')})`);
+}
+
 // Live session: stream fake speech, commit, expect delta + final.
 const events = await new Promise((resolve) => {
   const got = [];
@@ -175,6 +193,36 @@ const bad = await new Promise((resolve) => {
   ws.on('open', () => resolve('opened'));
 });
 ok(bad === 401, `listen with bad token → ${bad}`);
+
+// Caption language: ?lang= picks the transcription language(s) for the session.
+{
+  const readyLangs = (query) =>
+    new Promise((resolve) => {
+      const ws = new WebSocket(API.replace('http', 'ws') + '/v1/listen' + query, { headers: { authorization: `Bearer ${desk}` } });
+      ws.on('message', (m) => {
+        const e = JSON.parse(m.toString());
+        if (e.type === 'ready') {
+          resolve(JSON.stringify(e.languages));
+          ws.close();
+        }
+      });
+      ws.on('error', () => resolve('error'));
+      setTimeout(() => resolve('timeout'), 5000);
+    });
+  ok((await readyLangs('')) === '["en"]', 'no lang param → English');
+  ok((await readyLangs('?lang=en,HI')) === '["en","hi"]', 'lang=en,hi');
+  ok((await readyLangs('?lang=auto')) === '"auto"', 'lang=auto → auto-detect');
+  ok((await readyLangs('?lang=english')) === '["en"]', 'invalid lang → English');
+
+  // Pure helpers from the built server (they need a DATABASE_URL only to load; nothing connects).
+  process.env.DATABASE_URL ??= 'postgres://unused@127.0.0.1:1/unused';
+  const L = await import('../dist/listen.js');
+  ok(JSON.stringify(L.parseLangs('en,ta,te,hi')) === '["en"]' && JSON.stringify(L.parseLangs(undefined)) === '["en"]', 'lang parsing caps at 3 codes, defaults to en');
+  ok(L.mostlyNonLatin('这是一个测试') && L.mostlyNonLatin('यह एक परीक्षण है') && L.mostlyNonLatin('Привет, как дела'), 'non-Latin captions detected');
+  ok(!L.mostlyNonLatin('Tell me about yourself.') && !L.mostlyNonLatin('Café résumé, naïve') && !L.mostlyNonLatin('123 ...') && !L.mostlyNonLatin('Use React 是'), 'Latin captions kept');
+  ok(L.latinOnly(['en']) && L.latinOnly(['en', 'es']) && !L.latinOnly(['en', 'hi']) && !L.latinOnly(null), 'script guard only when every language is Latin-script');
+  ok(L.langPrompt(['en']) === 'English conversation on a call. Transcribe in English only.' && L.langPrompt(null) === undefined, `language prompt (${L.langPrompt(['en', 'hi'])})`);
+}
 
 ok((await j('/v1/billing/order', { token: web, body: { plan_id: 'nope' } })).status === 400, 'order rejects unknown plans');
 ok((await j('/v1/billing/webhook', { body: { event: 'payment.captured' } })).status === 400, 'webhook rejects bad signature');
@@ -292,6 +340,16 @@ if (process.env.CASHFREE_MOCK === '1') {
   ok(add.data.balance_seconds === 1800, `add 10 min (${add.data.balance_seconds}s)`);
   const sub = await j(`/v1/admin/users/${victimId}/time`, { token: admin, body: { seconds: -300 } });
   ok(sub.data.balance_seconds === 1500, `deduct 5 min (${sub.data.balance_seconds}s)`);
+  const left = sub.data.balance_seconds;
+  const over = await j(`/v1/admin/users/${victimId}/time`, { token: admin, body: { seconds: -100000 } });
+  ok(over.data.balance_seconds === 0 && over.data.removed_seconds === left, `over-deduct stops at zero (removed ${over.data.removed_seconds}s)`);
+  await j(`/v1/admin/users/${victimId}/time`, { token: admin, body: { seconds: 240 } });
+  const all = await j(`/v1/admin/users/${victimId}/time`, { token: admin, body: { all: true, note: 'abuse' } });
+  ok(all.data.balance_seconds === 0 && all.data.removed_seconds === 240, `remove all time (${all.data.removed_seconds}s)`);
+  ok((await j(`/v1/admin/users/${victimId}/time`, { token: admin, body: { all: true } })).status === 400, 'remove all with nothing left → 400');
+  const hist = (await j(`/v1/admin/users/${victimId}`, { token: admin })).data.credits;
+  ok(hist.some((c) => c.seconds === -left) && hist.some((c) => c.seconds === -240), 'time history records what was actually removed');
+  ok((await j('/v1/admin/log', { token: admin })).data.log.some((l) => l.action === 'remove_all_time'), 'remove-all is audited');
 
   ok((await j(`/v1/admin/users/${victimId}/block`, { token: admin, body: { reason: 'Abuse' } })).data.ok, 'block');
   const blocked = await j('/v1/me', { token: victim });
@@ -323,6 +381,45 @@ if (process.env.CASHFREE_MOCK === '1') {
 
 const usage = await j('/v1/usage', { token: web });
 ok(usage.data.usage.some((u) => u.kind === 'live') && usage.data.usage.some((u) => u.kind === 'answer'), 'usage history recorded');
+
+// AI cost tracking: price maths (built server), then what the admin panel gets.
+{
+  const { answerCostMicros, sttCostMicros } = await import('../dist/pricing.js');
+  ok(answerCostMicros({ model: 'gpt-6-luna', tier: 'default', input: 1e6, output: 1e6 }) === 600_000, 'luna: 1M in + 1M out = $0.60');
+  ok(answerCostMicros({ model: 'gpt-6-luna', tier: 'priority', input: 1e6, output: 1e6 }) === 1_200_000, 'priority lane costs 2x');
+  ok(answerCostMicros({ model: 'gpt-6.1-sol', input: 1e6, cached: 1e6, output: 0 }) === 100_000, 'cached input billed at the cached rate');
+  ok(answerCostMicros({ model: 'mystery-model', input: 1e6 }) === 1_000_000, 'unknown model priced like gpt-6.1-terra');
+  ok(sttCostMicros('gpt-live-transcribe', 60) === 17_000 && sttCostMicros('gpt-transcribe', 120) === 9_000, 'transcription priced per audio minute');
+  ok(answerCostMicros({ model: 'mock', input: 1e6, output: 1e6 }) === 0, 'mock answers are free');
+
+  const admin = (await j('/v1/auth/dev', { body: { email: 'admin@example.com' } })).data.token;
+  const meId = (await j('/v1/me', { token: web })).data.user.id;
+  const detail = (await j(`/v1/admin/users/${meId}`, { token: admin })).data;
+  const t = detail.totals;
+  ok(t && t.sessions >= 1 && t.answers >= 1, `user totals (${t?.sessions} sessions, ${t?.answers} answers)`);
+  ok(t.audio_ms >= 600, `audio sent to transcription measured (${t.audio_ms} ms)`);
+  ok(['stt_cost_micros', 'answer_cost_micros', 'paid_paise', 'input_tokens', 'cached_tokens'].every((k) => Number.isFinite(t[k])), 'user cost totals numeric');
+  ok(detail.usage.length > 0 && detail.usage.every((u) => Number.isFinite(u.cost_micros)), 'every usage row has a cost');
+  ok(typeof detail.usd_inr === 'number' && detail.usd_inr > 0, `USD→INR rate in user detail (${detail.usd_inr})`);
+
+  const stats = (await j('/v1/admin/stats', { token: admin })).data;
+  const ids = stats.cost?.windows?.map((w) => w.id).join(',');
+  ok(ids === '24h,7d,30d,all', `stats cost windows (${ids})`);
+  const all = stats.cost.windows.find((w) => w.id === 'all');
+  const paidSomething = process.env.CASHFREE_MOCK !== '1' || all.revenue_paise > 0; // payments only run with the mock
+  ok(['stt_micros', 'answer_micros', 'revenue_paise'].every((k) => Number.isFinite(all[k])) && paidSomething, `all-time cost & revenue (₹${all.revenue_paise / 100})`);
+  ok(stats.daily.every((d) => Number.isFinite(d.cost_micros)), 'daily series has cost');
+
+  const byCost = (await j('/v1/admin/users?sort=cost', { token: admin })).data;
+  ok(byCost.users.every((u) => Number.isFinite(u.cost_micros) && Number.isFinite(u.answers)), 'user list has cost and answers');
+  ok(byCost.users.every((u, i, a) => i === 0 || a[i - 1].cost_micros >= u.cost_micros), 'sort by cost');
+  const bySpend = (await j('/v1/admin/users?sort=paid', { token: admin })).data.users;
+  ok(bySpend.every((u, i, a) => i === 0 || a[i - 1].paid_paise >= u.paid_paise), 'sort by amount paid');
+
+  const rate = await j('/v1/admin/config', { token: admin, body: { usd_inr: 90.5 } });
+  ok(rate.data.config.usd_inr === 90.5 && (await j('/v1/admin/stats', { token: admin })).data.cost.usd_inr === 90.5, 'USD→INR rate editable');
+  await j('/v1/admin/config', { token: admin, body: { usd_inr: 88 } });
+}
 ok((await j('/v1/auth/logout', { token: web, body: {} })).data.ok && (await j('/v1/me', { token: web })).status === 401, 'logout revokes token');
 
 console.log(failures ? `\n${failures} check(s) failed` : '\nAll checks passed');

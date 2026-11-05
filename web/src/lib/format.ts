@@ -29,6 +29,21 @@ export function formatINR(rupees: number): string {
   return inr.format(rupees);
 }
 
+const inrPrecise = new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 });
+
+/** AI cost (USD micro-dollars) in rupees: paise precision below ₹100, whole rupees above. */
+export function formatCostINR(micros: number, usdInr: number): string {
+  const rupees = (micros / 1e6) * usdInr;
+  return Math.abs(rupees) < 100 ? inrPrecise.format(rupees) : inr.format(rupees);
+}
+
+/** AI cost (USD micro-dollars) in dollars: "$0.0042", "$12.40". */
+export function formatUSD(micros: number): string {
+  const usd = micros / 1e6;
+  if (usd === 0) return '$0';
+  return `$${usd.toFixed(Math.abs(usd) < 1 ? 4 : 2)}`;
+}
+
 /** Accepts unix seconds or milliseconds. */
 export function toDate(ts: number | null | undefined): Date | null {
   if (ts === null || ts === undefined || !Number.isFinite(ts) || ts <= 0) return null;

@@ -34,14 +34,17 @@ fn state(app: &AppHandle, state: &str, message: Option<&str>) {
     let _ = app.emit("listen:state", json!({ "state": state, "message": message }));
 }
 
-pub fn start(app: AppHandle, api: Api, token: String, opts: AudioOpts, id: u64) -> Result<ListenHandle, String> {
+/// `lang`: what the server should transcribe: ISO codes like "en" or "en,hi", or "auto".
+pub fn start(app: AppHandle, api: Api, token: String, opts: AudioOpts, id: u64, lang: &str) -> Result<ListenHandle, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let (audio, warnings) = audio::start(opts, tx)?;
     for w in warnings {
         let _ = app.emit("listen:msg", json!({ "type": "notice", "message": w }));
     }
     let (stop_tx, stop_rx) = watch::channel(false);
-    tauri::async_runtime::spawn(run(app, api, token, rx, stop_rx, id));
+    let lang: String = lang.chars().filter(|c| c.is_ascii_lowercase() || *c == ',').take(20).collect();
+    let path = format!("/v1/listen?lang={}", if lang.is_empty() { "en" } else { &lang });
+    tauri::async_runtime::spawn(run(app, api, token, rx, stop_rx, id, path));
     Ok(ListenHandle { id, stop: stop_tx, _audio: audio })
 }
 
@@ -52,11 +55,12 @@ async fn run(
     mut rx: mpsc::UnboundedReceiver<AudioEvent>,
     mut stop: watch::Receiver<bool>,
     id: u64,
+    path: String,
 ) {
     state(&app, "connecting", None);
     let mut failures = 0u32;
     let final_message: Option<String> = loop {
-        match connect(&api, &token).await {
+        match connect(&api, &token, &path).await {
             Ok(ws) => {
                 failures = 0;
                 state(&app, "live", None);
@@ -97,8 +101,8 @@ async fn run(
 
 type Ws = tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
 
-async fn connect(api: &Api, token: &str) -> Result<Ws, End> {
-    let mut req = api.ws_url("/v1/listen").into_client_request().map_err(|e| End::Fatal(e.to_string()))?;
+async fn connect(api: &Api, token: &str, path: &str) -> Result<Ws, End> {
+    let mut req = api.ws_url(path).into_client_request().map_err(|e| End::Fatal(e.to_string()))?;
     let auth = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| End::Fatal(e.to_string()))?;
     req.headers_mut().insert("authorization", auth);
     match tokio_tungstenite::connect_async_with_config(req, None, true).await {

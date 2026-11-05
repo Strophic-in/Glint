@@ -1,7 +1,8 @@
 use crate::api::{Api, ApiError};
 use crate::listen::ListenHandle;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64};
+use crate::screen::Frame;
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicIsize, AtomicU64};
 use std::sync::Mutex;
 use tauri::async_runtime::JoinHandle;
 
@@ -16,6 +17,12 @@ pub struct AppState {
     pub contextual: AtomicBool,
     pub typing: AtomicBool,
     pub prev_foreground: AtomicIsize,
+    /// Physical px between the window's left edge and the main column (the code panel's width).
+    pub layout_left: AtomicI32,
+    /// Latest screen frame, kept fresh while live so auto-answers don't wait for a capture.
+    pub screen_frame: Mutex<Option<Frame>>,
+    /// Bumped to stop the screen watcher; the thread exits when its generation is stale.
+    pub screen_watch: AtomicU64,
 }
 
 impl AppState {
@@ -31,6 +38,9 @@ impl AppState {
             contextual: AtomicBool::new(false),
             typing: AtomicBool::new(false),
             prev_foreground: AtomicIsize::new(0),
+            layout_left: AtomicI32::new(0),
+            screen_frame: Mutex::new(None),
+            screen_watch: AtomicU64::new(0),
         }
     }
 

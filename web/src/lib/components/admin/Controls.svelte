@@ -12,6 +12,7 @@
   let answerSec = $state(0);
   let idleMin = $state(0);
   let message = $state('');
+  let usdInr = $state(88);
 
   function adopt(r: { config: RuntimeConfig; models: CatalogModel[] }) {
     cfg = r.config;
@@ -20,6 +21,7 @@
     answerSec = r.config.answer_seconds;
     idleMin = Math.round(r.config.idle_timeout_s / 60);
     message = r.config.maintenance_message;
+    usdInr = r.config.usd_inr;
   }
 
   async function save(patch: Partial<RuntimeConfig>, done = 'Saved.') {
@@ -123,6 +125,20 @@
         {/each}
       </ul>
       <p class="muted small">Models without OpenAI access are hidden from users automatically.</p>
+    </section>
+
+    <section class="card box">
+      <h3>AI cost display</h3>
+      <p class="muted small">OpenAI bills in US dollars. Overview and Users show AI cost in rupees at this rate.</p>
+      <label class="field">
+        <span>1 US dollar =</span>
+        <span class="row">₹ <input class="input" type="number" min="1" max="1000" step="0.01" bind:value={usdInr} /></span>
+      </label>
+      <button
+        class="btn btn-sm btn-primary"
+        disabled={saving || !usdInr || usdInr === cfg.usd_inr}
+        onclick={() => save({ usd_inr: usdInr }, 'Exchange rate saved.')}
+      >Save rate</button>
     </section>
   </div>
 {/if}

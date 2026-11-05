@@ -1,5 +1,6 @@
 <script lang="ts">
   import { glint } from '../lib/store.svelte';
+  import { ipc } from '../lib/ipc';
   import Icon from './Icon.svelte';
 </script>
 
@@ -8,6 +9,8 @@
     <span class="msg">{glint.notice.message}</span>
     {#if glint.notice.action === 'buy'}
       <button class="cta" onclick={() => glint.buy()}>Add hours</button>
+    {:else if glint.notice.action === 'reveal' && glint.notice.path}
+      <button class="cta" onclick={() => ipc.revealPath(glint.notice!.path!)}>Show file</button>
     {/if}
     <button class="x" onclick={() => (glint.notice = null)} title="Dismiss"><Icon name="x" size={13} /></button>
   </div>

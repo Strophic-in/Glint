@@ -4,6 +4,7 @@ import { aiConfigured, config } from './config.js';
 import { deduct, effectiveBalance, logUsage, refund } from './db.js';
 import { isLive } from './live-registry.js';
 import { mockAnswer } from './mock.js';
+import { answerCostMicros } from './pricing.js';
 import { availableModels, refreshModels, resolveModel } from './models.js';
 import {
   ACTIONS,
@@ -21,17 +22,17 @@ import { HttpError, rateLimiter, str } from './util.js';
 const MAX_TRANSCRIPT_CHARS = 12_000;
 let priorityRejected = false; // set once OpenAI refuses service_tier=priority for this account
 
-function cleanTranscript(v: unknown): Turn[] {
+function cleanTranscript(v: unknown, maxTurns = 200, maxChars = MAX_TRANSCRIPT_CHARS): Turn[] {
   if (!Array.isArray(v)) return [];
   const turns: Turn[] = [];
-  for (const t of v.slice(-200)) {
+  for (const t of v.slice(-maxTurns)) {
     const text = str(t?.text, 2000).trim();
     if (text) turns.push({ who: t?.who === 'you' ? 'you' : 'them', text });
   }
   // Keep the most recent turns within the char budget.
   let total = 0;
   let i = turns.length;
-  while (i > 0 && total + turns[i - 1]!.text.length <= MAX_TRANSCRIPT_CHARS) total += turns[--i]!.text.length;
+  while (i > 0 && total + turns[i - 1]!.text.length <= maxChars) total += turns[--i]!.text.length;
   return turns.slice(i);
 }
 
@@ -69,11 +70,19 @@ function cleanHistory(v: unknown) {
     .filter((m) => m.content) as { role: 'user' | 'assistant'; content: string }[];
 }
 
-/** Stream chat-completion text deltas from OpenAI. Yields text; returns token usage. */
+interface StreamUsage {
+  input?: number;
+  cached?: number;
+  output?: number;
+  /** Lane OpenAI actually served the request on (priority costs more). */
+  tier?: string;
+}
+
+/** Stream chat-completion text deltas from OpenAI. Yields text; fills in token usage. */
 async function* openaiStream(
   body: Record<string, unknown>,
   signal: AbortSignal,
-  usage: { input?: number; output?: number },
+  usage: StreamUsage,
 ): AsyncGenerator<string> {
   const post = (b: Record<string, unknown>) =>
     fetch(`${config.openaiBase}/chat/completions`, {
@@ -128,8 +137,10 @@ async function* openaiStream(
       } catch {
         continue;
       }
+      if (typeof evt.service_tier === 'string') usage.tier = evt.service_tier;
       if (evt.usage) {
         usage.input = evt.usage.prompt_tokens;
+        usage.cached = evt.usage.prompt_tokens_details?.cached_tokens;
         usage.output = evt.usage.completion_tokens;
       }
       const t = evt.choices?.[0]?.delta?.content;
@@ -140,6 +151,7 @@ async function* openaiStream(
 
 export async function answerRoutes(app: FastifyInstance) {
   const perMinute = rateLimiter(30, 60_000);
+  const perSummaryWindow = rateLimiter(4, 60 * 60_000); // free session reviews: a few per hour
   const inflight = new Map<string, number>();
 
   await refreshModels(app.log);
@@ -165,7 +177,10 @@ export async function answerRoutes(app: FastifyInstance) {
     const language = str(b.profile?.language, 40) || 'English';
     const image = typeof b.image === 'string' && b.image.length > 100 ? b.image : null;
     if (image && image.length > 7_000_000) throw new HttpError(413, 'bad_request', 'Screenshot too large.');
-    const transcript = cleanTranscript(b.transcript);
+    // The end-of-session review reads the whole session, not just the last few minutes.
+    const summary = action === 'summary';
+    if (summary) perSummaryWindow(user.id);
+    const transcript = summary ? cleanTranscript(b.transcript, 2000, 90_000) : cleanTranscript(b.transcript);
     const history = cleanHistory(b.history);
     const session = cleanSession(b.profile?.session);
     const docs = cleanDocs(b.profile?.docs);
@@ -175,8 +190,8 @@ export async function answerRoutes(app: FastifyInstance) {
       throw new HttpError(402, 'no_balance', 'You are out of time. Add hours to keep going.');
     }
 
-    // Answers are included while live; otherwise they cost a flat ANSWER_SECONDS.
-    const charge = isLive(user.id) ? 0 : config.answerSeconds;
+    // Answers are included while live; otherwise they cost a flat ANSWER_SECONDS. The session review is free.
+    const charge = summary || isLive(user.id) ? 0 : config.answerSeconds;
     if (charge) await deduct(user.id, charge);
 
     const startedAt = Date.now();
@@ -199,7 +214,7 @@ export async function answerRoutes(app: FastifyInstance) {
     res.flushHeaders?.();
     const send = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
 
-    const usage: { input?: number; output?: number } = {};
+    const usage: StreamUsage = {};
     const model = config.mockAI ? 'mock' : chosen.id;
     let ok = false;
     try {
@@ -210,7 +225,7 @@ export async function answerRoutes(app: FastifyInstance) {
               model,
               stream: true,
               stream_options: { include_usage: true },
-              max_completion_tokens: config.maxOutputTokens,
+              max_completion_tokens: summary ? Math.max(config.maxOutputTokens, 1800) : config.maxOutputTokens,
               ...(chosen.effort ? { reasoning_effort: chosen.effort } : {}),
               ...(config.serviceTier && !priorityRejected ? { service_tier: config.serviceTier } : {}),
               messages: [
@@ -258,7 +273,10 @@ export async function answerRoutes(app: FastifyInstance) {
           endedAt: Date.now(),
           model,
           inputTokens: usage.input,
+          cachedTokens: usage.cached,
           outputTokens: usage.output,
+          serviceTier: usage.tier,
+          costMicros: answerCostMicros({ model, tier: usage.tier, input: usage.input, cached: usage.cached, output: usage.output }),
         }).catch((e) => req.log.warn({ err: e?.message }, 'usage log failed'));
       }
     }

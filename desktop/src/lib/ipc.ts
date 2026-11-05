@@ -30,6 +30,13 @@ export interface DocText {
   truncated: boolean;
 }
 
+export interface MonitorInfo {
+  name: string;
+  width: number;
+  height: number;
+  primary: boolean;
+}
+
 export interface ApiError {
   status: number;
   error: string;
@@ -47,8 +54,8 @@ export const ipc = {
   logout: () => invoke<void>('logout'),
   me: () => invoke<Me>('me'),
   models: () => invoke<{ models: ModelOption[]; default: string }>('models'),
-  listenStart: (mic: boolean, system: boolean, micDevice: string | null, systemDevice: string | null) =>
-    invoke<void>('listen_start', { mic, system, micDevice, systemDevice }),
+  listenStart: (mic: boolean, system: boolean, micDevice: string | null, systemDevice: string | null, lang: string) =>
+    invoke<void>('listen_start', { mic, system, micDevice, systemDevice, lang }),
   listenStop: () => invoke<void>('listen_stop'),
   ask: (id: number, body: unknown, withScreen: boolean) => invoke<void>('ask', { id, body, withScreen }),
   askCancel: () => invoke<void>('ask_cancel'),
@@ -59,7 +66,10 @@ export const ipc = {
   suspendShortcuts: (on: boolean) => invoke<void>('suspend_shortcuts', { on }),
   setTyping: (on: boolean, restore = true) => invoke<void>('set_typing', { on, restore }),
   setProtected: (on: boolean) => invoke<void>('set_protected', { on }),
-  resize: (width: number, height: number) => invoke<void>('resize', { width, height }),
+  /** `left`: the main column's offset from the window's left edge (the code panel), logical px. */
+  resize: (width: number, height: number, left = 0) => invoke<void>('resize', { width, height, left }),
+  resizeDrag: () => invoke<void>('resize_drag'),
+  setScreenWatch: (on: boolean) => invoke<void>('set_screen_watch', { on }),
   setZoom: (scale: number) => invoke<void>('set_zoom', { scale }),
   dragWindow: () => invoke<void>('drag_window'),
   pickDocument: () => invoke<DocText | null>('pick_document'),
@@ -68,6 +78,13 @@ export const ipc = {
   openUrl: (url: string) => invoke<void>('open_url', { url }),
   hide: () => invoke<void>('hide'),
   quit: () => invoke<void>('quit'),
+  quitNow: () => invoke<void>('quit_now'),
+  sessionReview: (body: unknown) => invoke<string>('session_review', { body }),
+  saveSession: (fileName: string, content: string) => invoke<string>('save_session', { fileName, content }),
+  sessionsDir: () => invoke<string>('sessions_dir'),
+  revealPath: (path: string) => invoke<void>('reveal_path', { path }),
+  listMonitors: () => invoke<MonitorInfo[]>('list_monitors'),
+  placeWindow: (monitor: string, anchor: string) => invoke<void>('place_window', { monitor, anchor }),
 };
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {

@@ -10,7 +10,7 @@ import { closeLive, isLive, listLive } from './live-registry.js';
 import { catalogStatus } from './models.js';
 import { PLANS } from './billing.js';
 import { normalizeCode } from './coupons.js';
-import { getRuntime, setRuntime } from './runtime.js';
+import { getRuntime, runtime, setRuntime } from './runtime.js';
 import { HttpError, str } from './util.js';
 
 const DAY = 86_400_000;
@@ -78,6 +78,28 @@ function parseCoupon(body: unknown, create: boolean) {
   return out;
 }
 
+const COST_WINDOWS = [
+  { id: '24h', label: 'Last 24 h', days: 1 },
+  { id: '7d', label: 'Last 7 days', days: 7 },
+  { id: '30d', label: 'Last 30 days', days: 30 },
+  { id: 'all', label: 'All time', days: 0 },
+] as const;
+
+// Window ids and day counts are constants above, never user input, so inlining them is safe.
+const windowFilter = (col: string, days: number, now: number) => (days ? ` AND ${col} >= ${now - days * DAY}` : '');
+const costColumns = (id: string, days: number, now: number) =>
+  `coalesce(sum(cost_micros) FILTER (WHERE kind = 'live'${windowFilter('started_at', days, now)}), 0)::bigint AS stt_${id},
+   coalesce(sum(cost_micros) FILTER (WHERE kind = 'answer'${windowFilter('started_at', days, now)}), 0)::bigint AS answer_${id}`;
+const revenueColumn = (id: string, days: number, now: number) =>
+  `coalesce(sum(amount_paise) FILTER (WHERE true${windowFilter('paid_at', days, now)}), 0)::bigint AS revenue_${id}`;
+
+const USER_SORTS: Record<string, string> = {
+  recent: 'u.created_at DESC',
+  cost: 'cost_micros DESC, u.created_at DESC',
+  usage: 'used_seconds DESC, u.created_at DESC',
+  paid: 'paid_paise DESC, u.created_at DESC',
+};
+
 async function targetUser(req: FastifyRequest): Promise<UserRow> {
   const user = await getUser(str((req.params as any)?.id, 64));
   if (!user) throw new HttpError(404, 'not_found', 'User not found.');
@@ -106,6 +128,25 @@ export async function adminRoutes(app: FastifyInstance) {
         (SELECT coalesce(sum(input_tokens), 0) FROM usage WHERE started_at >= ${since(7)})::bigint AS input_tokens_7d,
         (SELECT coalesce(sum(output_tokens), 0) FROM usage WHERE started_at >= ${since(7)})::bigint AS output_tokens_7d,
         (SELECT coalesce(sum(balance_seconds), 0) FROM users)::bigint AS balance_outstanding_seconds`;
+    // AI cost (USD micro-dollars) next to revenue for the same windows. Transcription = live sessions.
+    const [c] = await sql`
+      SELECT
+        ${sql.unsafe(COST_WINDOWS.map((w) => costColumns(w.id, w.days, now)).join(', '))}
+      FROM usage`;
+    const [r] = await sql`
+      SELECT
+        ${sql.unsafe(COST_WINDOWS.map((w) => revenueColumn(w.id, w.days, now)).join(', '))}
+      FROM orders WHERE status = 'paid'`;
+    const cost = {
+      usd_inr: runtime.usdInr,
+      windows: COST_WINDOWS.map((w) => ({
+        id: w.id,
+        label: w.label,
+        stt_micros: Number(c?.[`stt_${w.id}`] ?? 0),
+        answer_micros: Number(c?.[`answer_${w.id}`] ?? 0),
+        revenue_paise: Number(r?.[`revenue_${w.id}`] ?? 0),
+      })),
+    };
     // Rolling 24 h windows, newest first, labelled with the window's end date.
     const daily = await sql`
       WITH w AS (
@@ -117,9 +158,10 @@ export async function adminRoutes(app: FastifyInstance) {
         (SELECT count(*) FROM users WHERE created_at >= lo AND created_at < hi)::int AS signups,
         (SELECT coalesce(sum(amount_paise), 0) FROM orders WHERE status = 'paid' AND paid_at >= lo AND paid_at < hi)::bigint AS revenue_paise,
         (SELECT coalesce(sum(seconds), 0) FROM usage WHERE kind = 'live' AND started_at >= lo AND started_at < hi)::bigint AS live_seconds,
-        (SELECT count(*) FROM usage WHERE kind = 'answer' AND started_at >= lo AND started_at < hi)::int AS answers
+        (SELECT count(*) FROM usage WHERE kind = 'answer' AND started_at >= lo AND started_at < hi)::int AS answers,
+        (SELECT coalesce(sum(cost_micros), 0) FROM usage WHERE started_at >= lo AND started_at < hi)::bigint AS cost_micros
       FROM w ORDER BY d`;
-    return { ...s, live_now: listLive().length, daily };
+    return { ...s, live_now: listLive().length, daily, cost };
   });
 
   app.get('/v1/admin/users', async (req) => {
@@ -127,6 +169,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const qs = req.query as Record<string, string>;
     const search = `%${str(qs.q, 100).trim()}%`;
     const filter = str(qs.filter, 20);
+    const sort = USER_SORTS[str(qs.sort, 20)] ?? USER_SORTS.recent!;
     const limit = Math.min(200, Math.max(1, Number(qs.limit) || 50));
     const offset = Math.max(0, Number(qs.offset) || 0);
     const where = sql`
@@ -137,22 +180,25 @@ export async function adminRoutes(app: FastifyInstance) {
       SELECT u.id, u.email, u.name, u.picture, u.created_at, u.last_seen_at, u.balance_seconds, u.expires_at,
              u.blocked, u.blocked_reason,
              (SELECT coalesce(sum(amount_paise), 0) FROM orders o WHERE o.user_id = u.id AND o.status = 'paid')::bigint AS paid_paise,
-             (SELECT coalesce(sum(seconds), 0) FROM usage x WHERE x.user_id = u.id)::bigint AS used_seconds
+             (SELECT coalesce(sum(seconds), 0) FROM usage x WHERE x.user_id = u.id)::bigint AS used_seconds,
+             (SELECT count(*) FROM usage x WHERE x.user_id = u.id AND x.kind = 'answer')::int AS answers,
+             (SELECT coalesce(sum(cost_micros), 0) FROM usage x WHERE x.user_id = u.id)::bigint AS cost_micros
       FROM users u WHERE ${where}
-      ORDER BY u.created_at DESC LIMIT ${limit} OFFSET ${offset}`;
+      ORDER BY ${sql.unsafe(sort)} LIMIT ${limit} OFFSET ${offset}`;
     const [count] = await sql<{ total: number }[]>`SELECT count(*)::int AS total FROM users u WHERE ${where}`;
     const total = count?.total ?? 0;
     let users = rows.map((r) => ({ ...r, live: isLive(String(r.id)) }));
     if (filter === 'live') users = users.filter((u) => u.live);
-    return { users, total };
+    return { users, total, usd_inr: runtime.usdInr };
   });
 
   app.get('/v1/admin/users/:id', async (req) => {
     await requireAdmin(req);
     const user = await targetUser(req);
-    const [usage, orders, credits, sessions, balance] = await Promise.all([
-      sql`SELECT kind, seconds, started_at, ended_at, model, input_tokens, output_tokens FROM usage
-          WHERE user_id = ${user.id} ORDER BY started_at DESC LIMIT 100`,
+    const [usage, orders, credits, sessions, balance, [totals]] = await Promise.all([
+      sql`SELECT kind, seconds, started_at, ended_at, model, input_tokens, cached_tokens, output_tokens, audio_ms,
+                 service_tier, cost_micros
+          FROM usage WHERE user_id = ${user.id} ORDER BY started_at DESC LIMIT 100`,
       sql`SELECT id, plan_id, amount_paise, seconds, status, payment_id, created_at, paid_at FROM orders
           WHERE user_id = ${user.id} ORDER BY created_at DESC`,
       sql`SELECT seconds, reason, note, created_at FROM credits WHERE user_id = ${user.id}
@@ -160,8 +206,24 @@ export async function adminRoutes(app: FastifyInstance) {
       sql`SELECT kind, created_at, last_used_at, user_agent FROM sessions WHERE user_id = ${user.id}
           ORDER BY last_used_at DESC`,
       effectiveBalance(user.id),
+      sql`
+        SELECT
+          count(*) FILTER (WHERE kind = 'live')::int AS sessions,
+          coalesce(sum(seconds) FILTER (WHERE kind = 'live'), 0)::bigint AS live_seconds,
+          count(*) FILTER (WHERE kind = 'answer')::int AS answers,
+          coalesce(sum(seconds) FILTER (WHERE kind = 'answer'), 0)::bigint AS answer_seconds,
+          coalesce(sum(audio_ms), 0)::bigint AS audio_ms,
+          coalesce(sum(input_tokens), 0)::bigint AS input_tokens,
+          coalesce(sum(cached_tokens), 0)::bigint AS cached_tokens,
+          coalesce(sum(output_tokens), 0)::bigint AS output_tokens,
+          coalesce(sum(cost_micros) FILTER (WHERE kind = 'live'), 0)::bigint AS stt_cost_micros,
+          coalesce(sum(cost_micros) FILTER (WHERE kind = 'answer'), 0)::bigint AS answer_cost_micros,
+          (SELECT coalesce(sum(amount_paise), 0) FROM orders WHERE user_id = ${user.id} AND status = 'paid')::bigint AS paid_paise
+        FROM usage WHERE user_id = ${user.id}`,
     ]);
     return {
+      totals,
+      usd_inr: runtime.usdInr,
       user: {
         ...publicUser(user),
         created_at: user.created_at,
@@ -199,27 +261,37 @@ export async function adminRoutes(app: FastifyInstance) {
     return { ok: true };
   });
 
-  // Positive seconds add time (and extend validity); negative seconds deduct.
+  // Positive seconds add time (and extend validity); negative seconds deduct; { all: true } removes
+  // the whole balance. Deductions stop at zero and record what was actually removed.
   app.post('/v1/admin/users/:id/time', async (req) => {
     const admin = await requireAdmin(req);
     const user = await targetUser(req);
+    const all = (req.body as any)?.all === true;
     const seconds = Math.trunc(Number((req.body as any)?.seconds));
     const note = str((req.body as any)?.note, 200) || null;
-    if (!Number.isFinite(seconds) || seconds === 0 || Math.abs(seconds) > 1000 * 3600) {
+    if (!all && (!Number.isFinite(seconds) || seconds === 0 || Math.abs(seconds) > 1000 * 3600)) {
       throw new HttpError(400, 'bad_request', 'Enter a non-zero number of seconds.');
     }
     const ref = `${admin.id}:${Date.now()}`;
-    if (seconds > 0) {
+    if (!all && seconds > 0) {
       await credit(user.id, seconds, 'admin', ref, note ?? undefined);
-    } else {
-      await sql.begin(async (tx) => {
-        await tx`UPDATE users SET balance_seconds = GREATEST(balance_seconds + ${seconds}, 0) WHERE id = ${user.id}`;
-        await tx`INSERT INTO credits (user_id, seconds, reason, ref, note, created_at)
-                 VALUES (${user.id}, ${seconds}, 'admin_deduct', ${ref}, ${note}, ${Date.now()})`;
-      });
+      await audit(admin, 'add_time', user.email, { seconds, note });
+      return { ok: true, balance_seconds: await effectiveBalance(user.id) };
     }
-    await audit(admin, seconds > 0 ? 'add_time' : 'deduct_time', user.email, { seconds, note });
-    return { ok: true, balance_seconds: await effectiveBalance(user.id) };
+    await effectiveBalance(user.id); // zero an expired balance first
+    const removed = await sql.begin(async (tx) => {
+      const [u] = await tx<{ balance_seconds: number }[]>`
+        SELECT balance_seconds FROM users WHERE id = ${user.id} FOR UPDATE`;
+      const take = Math.min(u?.balance_seconds ?? 0, all ? Infinity : -seconds);
+      if (take <= 0) return 0;
+      await tx`UPDATE users SET balance_seconds = balance_seconds - ${take} WHERE id = ${user.id}`;
+      await tx`INSERT INTO credits (user_id, seconds, reason, ref, note, created_at)
+               VALUES (${user.id}, ${-take}, 'admin_deduct', ${ref}, ${note}, ${Date.now()})`;
+      return take;
+    });
+    if (!removed) throw new HttpError(400, 'bad_request', 'This user has no time left to remove.');
+    await audit(admin, all ? 'remove_all_time' : 'deduct_time', user.email, { seconds: -removed, note });
+    return { ok: true, balance_seconds: await effectiveBalance(user.id), removed_seconds: removed };
   });
 
   app.post('/v1/admin/users/:id/logout', async (req) => {

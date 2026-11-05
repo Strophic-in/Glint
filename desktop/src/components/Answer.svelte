@@ -1,22 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { glint, type Action } from '../lib/store.svelte';
-  import { renderMarkdown } from '../lib/markdown';
   import Icon from './Icon.svelte';
 
+  // The answer is rendered once in App (shared with the code panel); `onCodeRef` jumps to a block there.
+  let { html, onCodeRef }: { html: string; onCodeRef?: (i: number) => void } = $props();
+
   let body: HTMLDivElement | undefined = $state();
-  let html = $state('');
   let copied = $state(false);
-  let raf = 0;
 
   const a = $derived(glint.answer);
-
-  // Re-render at most once per frame while tokens stream in.
-  $effect(() => {
-    const text = a?.text ?? '';
-    cancelAnimationFrame(raf);
-    raf = requestAnimationFrame(() => (html = renderMarkdown(text)));
-  });
 
   onMount(() => {
     glint.scrollBy = (dy) => body?.scrollBy({ top: dy, behavior: 'smooth' });
@@ -29,6 +22,8 @@
   });
 
   function onBodyClick(e: MouseEvent) {
+    const ref = (e.target as HTMLElement).closest<HTMLElement>('.code-ref');
+    if (ref) return onCodeRef?.(Number(ref.dataset.ref));
     const btn = (e.target as HTMLElement).closest('.copy-code') as HTMLButtonElement | null;
     if (!btn) return;
     const code = btn.closest('.code')?.querySelector('pre')?.textContent ?? '';
@@ -144,7 +139,7 @@
     color: var(--text);
   }
   .body {
-    max-height: 420px;
+    max-height: var(--answer-h, 420px);
     padding-right: 4px;
   }
   .caret {

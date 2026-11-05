@@ -5,6 +5,22 @@
   import { ipc } from '../lib/ipc';
   import { formatLeft } from '../lib/time';
   import Icon from './Icon.svelte';
+  import UnhideConfirm from './UnhideConfirm.svelte';
+  import { updates } from '../lib/update.svelte';
+
+  let confirmUnhide = $state(false);
+
+  // Hiding is instant; showing Glint in screen shares asks first.
+  function onProtectChange(e: Event) {
+    const box = e.currentTarget as HTMLInputElement;
+    if (box.checked) {
+      settings.protected = true;
+      confirmUnhide = false;
+    } else {
+      box.checked = true;
+      confirmUnhide = true;
+    }
+  }
 
   let now = $state(Date.now());
   $effect(() => {
@@ -48,8 +64,23 @@
 
     <label class="item">
       <Icon name="eye" size={15} /> Invisibility
-      <input type="checkbox" class="switch" bind:checked={settings.protected} title="Hidden from screen share and recordings" />
+      <input
+        type="checkbox"
+        class="switch"
+        checked={settings.protected}
+        onchange={onProtectChange}
+        title="Hidden from screen share and recordings"
+      />
     </label>
+    {#if confirmUnhide}
+      <UnhideConfirm
+        oncancel={() => (confirmUnhide = false)}
+        onconfirm={() => {
+          settings.protected = false;
+          confirmUnhide = false;
+        }}
+      />
+    {/if}
     <div class="item static">
       <Icon name="sparkle" size={15} /> Zoom
       <span class="zoom">
@@ -60,6 +91,11 @@
     </div>
 
     <div class="sep"></div>
+    {#if updates.status === 'available'}
+      <button class="item update" onclick={() => run(() => (updates.dismissed = false))}>
+        <Icon name="sparkle" size={15} /> Update to v{updates.version}
+      </button>
+    {/if}
     <button class="item" onclick={() => run(() => (glint.view = 'settings'))}><Icon name="gear" size={15} /> Settings</button>
     <button class="item" onclick={() => run(() => ipc.hide())}><Icon name="minus" size={15} /> Hide completely</button>
     <button class="item" onclick={() => run(() => glint.signOut())}><Icon name="logout" size={15} /> Sign out</button>
@@ -146,6 +182,13 @@
   }
   .item.static {
     cursor: default;
+  }
+  .item.update {
+    color: var(--accent);
+    font-weight: 600;
+  }
+  .item.update :global(svg) {
+    color: var(--accent);
   }
   .ext {
     margin-left: auto;

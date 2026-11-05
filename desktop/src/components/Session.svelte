@@ -7,8 +7,8 @@
   import { settings, MODES, LANGUAGES } from '../lib/settings.svelte';
   import { ipc, errorMessage } from '../lib/ipc';
   import Icon from './Icon.svelte';
-  import Keys from './Keys.svelte';
   import ModelPicker from './ModelPicker.svelte';
+  import { recorder } from '../lib/recorder.svelte';
 
   let adding = $state(false);
   let docError = $state('');
@@ -43,9 +43,15 @@
     settings.docs = settings.docs.filter((d) => d.id !== id);
   }
 
+  // A session records everything until it ends (see recorder.svelte.ts) and starts listening.
   async function start() {
     glint.view = 'main';
-    if (!live) await glint.toggleListen();
+    await recorder.start();
+  }
+
+  function end() {
+    glint.view = 'main';
+    recorder.end();
   }
 
   const fmt = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
@@ -129,17 +135,36 @@
       <textarea rows="3" maxlength="4000" placeholder={mode.placeholder} bind:value={settings.context}></textarea>
     </label>
 
-    <button class="start" onclick={start}>
-      {#if live}
-        Done
-      {:else}
-        Start listening <Keys accel={settings.bindings.listen} />
-      {/if}
-    </button>
+    {#if recorder.active}
+      <button class="start end" onclick={end}>End session &amp; save</button>
+    {:else}
+      <button class="start" onclick={start} disabled={recorder.finishing}>
+        {recorder.finishing ? 'Saving the last session…' : 'Start session'}
+      </button>
+    {/if}
+    <p class="save-note">
+      Every question, answer and an AI review are saved to <b>Documents\Glint Sessions</b> when the session ends or
+      you quit Glint.{live && !recorder.active ? ' (You are listening without recording.)' : ''}
+    </p>
   </div>
 </section>
 
 <style>
+  .start.end {
+    background: rgba(255, 90, 95, 0.16);
+    color: #ff8f93;
+    border: 1px solid rgba(255, 90, 95, 0.4);
+  }
+  .save-note {
+    margin: 8px 2px 0;
+    font-size: 11.5px;
+    line-height: 1.45;
+    color: var(--faint);
+  }
+  .save-note b {
+    color: var(--muted);
+    font-weight: 600;
+  }
   .session {
     margin-top: 6px;
     overflow: hidden;
