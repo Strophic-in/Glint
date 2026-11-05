@@ -156,6 +156,10 @@ ALTER TABLE usage ADD COLUMN IF NOT EXISTS cached_tokens integer;
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS audio_ms integer;
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS cost_micros bigint;
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS service_tier text;
+
+-- v4: public coupons, advertised on the website with the admin's banner text.
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false;
+ALTER TABLE coupons ADD COLUMN IF NOT EXISTS public_text text;
 `;
 
 /** Create/upgrade tables. Safe to run on every boot and from several instances at once. */

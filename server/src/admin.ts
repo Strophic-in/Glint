@@ -9,7 +9,7 @@ import { credit, effectiveBalance, getUser, getUserByEmail, isUuid, sql, type Us
 import { closeLive, isLive, listLive } from './live-registry.js';
 import { catalogStatus } from './models.js';
 import { PLANS } from './billing.js';
-import { normalizeCode } from './coupons.js';
+import { normalizeCode, forgetPublicCoupons } from './coupons.js';
 import { getRuntime, runtime, setRuntime } from './runtime.js';
 import { HttpError, str } from './util.js';
 
@@ -40,6 +40,8 @@ function parseCoupon(body: unknown, create: boolean) {
     plan_ids?: string[] | null;
     expires_at?: number | null;
     note?: string | null;
+    public?: boolean;
+    public_text?: string | null;
   } = {};
   if (create || b.code !== undefined) {
     out.code = normalizeCode(b.code);
@@ -75,6 +77,8 @@ function parseCoupon(body: unknown, create: boolean) {
     out.expires_at = t;
   }
   if (b.note !== undefined) out.note = str(b.note, 200) || null;
+  if (b.public !== undefined) out.public = b.public === true;
+  if (b.public_text !== undefined) out.public_text = str(b.public_text, 140).trim() || null;
   return out;
 }
 
@@ -366,11 +370,12 @@ export async function adminRoutes(app: FastifyInstance) {
     const admin = await requireAdmin(req);
     const c = parseCoupon(req.body, true);
     const r = await sql`
-      INSERT INTO coupons (code, kind, value, active, max_uses, once_per_user, plan_ids, expires_at, note, created_at)
+      INSERT INTO coupons (code, kind, value, active, max_uses, once_per_user, plan_ids, expires_at, note, public, public_text, created_at)
       VALUES (${c.code!}, ${c.kind!}, ${c.value!}, ${c.active ?? true}, ${c.max_uses ?? null}, ${c.once_per_user ?? true},
-              ${c.plan_ids ?? null}, ${c.expires_at ?? null}, ${c.note ?? null}, ${Date.now()})
+              ${c.plan_ids ?? null}, ${c.expires_at ?? null}, ${c.note ?? null}, ${c.public ?? false}, ${c.public_text ?? null}, ${Date.now()})
       ON CONFLICT (code) DO NOTHING`;
     if (!r.count) throw new HttpError(409, 'exists', `A coupon called ${c.code} already exists.`);
+    forgetPublicCoupons();
     await audit(admin, 'coupon_create', c.code!, c);
     return { ok: true };
   });
@@ -382,10 +387,11 @@ export async function adminRoutes(app: FastifyInstance) {
     const [existing] = await sql`SELECT code FROM coupons WHERE code = ${code}`;
     if (!existing) throw new HttpError(404, 'not_found', 'Coupon not found.');
     const set: Record<string, unknown> = {};
-    for (const k of ['kind', 'value', 'active', 'max_uses', 'once_per_user', 'plan_ids', 'expires_at', 'note'] as const) {
+    for (const k of ['kind', 'value', 'active', 'max_uses', 'once_per_user', 'plan_ids', 'expires_at', 'note', 'public', 'public_text'] as const) {
       if (c[k] !== undefined) set[k] = c[k];
     }
     if (Object.keys(set).length) await sql`UPDATE coupons SET ${sql(set)} WHERE code = ${code}`;
+    forgetPublicCoupons();
     await audit(admin, 'coupon_update', code, set);
     return { ok: true };
   });
@@ -395,6 +401,7 @@ export async function adminRoutes(app: FastifyInstance) {
     const code = normalizeCode((req.params as any)?.code);
     const r = await sql`DELETE FROM coupons WHERE code = ${code}`;
     if (!r.count) throw new HttpError(404, 'not_found', 'Coupon not found.');
+    forgetPublicCoupons();
     await audit(admin, 'coupon_delete', code);
     return { ok: true };
   });

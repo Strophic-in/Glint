@@ -4,6 +4,7 @@
   import Pricing from '$lib/components/Pricing.svelte';
   import DownloadButton from '$lib/components/DownloadButton.svelte';
   import InstallHelp from '$lib/components/InstallHelp.svelte';
+  import PromoBanner from '$lib/components/PromoBanner.svelte';
   import { api, type PlansResponse } from '$lib/api';
   import { FALLBACK_PLANS } from '$lib/plans';
   import { BRAND } from '$lib/config';
@@ -269,6 +270,7 @@
         No subscription. Time is billed per second, only while {BRAND} is live. Prices include GST.
       </p>
     </div>
+    <PromoBanner />
     <Pricing data={plans} />
   </div>
 </section>

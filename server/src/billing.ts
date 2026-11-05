@@ -7,7 +7,7 @@ import type { FastifyInstance } from 'fastify';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { authenticate } from './auth.js';
 import { config } from './config.js';
-import { applyCoupon, couponLabel, recordRedemption, usableCoupon, type Coupon } from './coupons.js';
+import { applyCoupon, couponLabel, publicCoupons, recordRedemption, usableCoupon, type Coupon } from './coupons.js';
 import { credit, effectiveBalance, sql, type UserRow } from './db.js';
 import { HttpError, rateLimiter, str } from './util.js';
 
@@ -125,6 +125,12 @@ export async function billingRoutes(app: FastifyInstance) {
   }));
 
   // Preview a coupon against every plan (for the price cards).
+  // Offers the admin chose to advertise (shown on the website's pricing and dashboard).
+  app.get('/v1/coupons/public', async (_req, reply) => {
+    reply.header('cache-control', 'public, max-age=30');
+    return { coupons: await publicCoupons() };
+  });
+
   app.post('/v1/billing/coupon', async (req) => {
     const user = await authenticate(req);
     couponLimit(user.id);

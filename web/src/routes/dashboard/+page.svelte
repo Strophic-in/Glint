@@ -2,6 +2,7 @@
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import Pricing from '$lib/components/Pricing.svelte';
+  import PromoBanner from '$lib/components/PromoBanner.svelte';
   import DownloadButton from '$lib/components/DownloadButton.svelte';
   import InstallHelp from '$lib/components/InstallHelp.svelte';
   import { session } from '$lib/session.svelte';
@@ -250,6 +251,13 @@
         {plans.validity_days} days. Prices include GST.
       </p>
     </div>
+    <PromoBanner
+      applied={quote?.code ?? ''}
+      onapply={(code) => {
+        couponInput = code;
+        applyCoupon();
+      }}
+    />
     <div class="checkout card">
       <form class="field" onsubmit={applyCoupon}>
         <label for="coupon">Coupon code</label>

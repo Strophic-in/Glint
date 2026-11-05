@@ -14,7 +14,47 @@ export interface Coupon {
   plan_ids: string[] | null;
   expires_at: number | null;
   note: string | null;
+  /** Advertised on the website, with public_text as the banner (e.g. "Dussehra Sale: 30% off"). */
+  public: boolean;
+  public_text: string | null;
   created_at: number;
+}
+
+export interface PublicCoupon {
+  code: string;
+  label: string;
+  text: string;
+  plan_ids: string[] | null;
+  expires_at: number | null;
+}
+
+let publicCache: { at: number; coupons: PublicCoupon[] } | null = null;
+
+/** Coupons to show on the website: public, enabled, not expired and not used up. Cached briefly. */
+export async function publicCoupons(): Promise<PublicCoupon[]> {
+  if (publicCache && Date.now() - publicCache.at < 30_000) return publicCache.coupons;
+  const now = Date.now();
+  const rows = await sql<Coupon[]>`
+    SELECT * FROM coupons
+    WHERE public AND active
+      AND (expires_at IS NULL OR expires_at > ${now})
+      AND (max_uses IS NULL OR uses < max_uses)
+    ORDER BY created_at DESC
+    LIMIT 3`;
+  const coupons = rows.map((c) => ({
+    code: c.code,
+    label: couponLabel(c),
+    text: c.public_text?.trim() || couponLabel(c),
+    plan_ids: c.plan_ids,
+    expires_at: c.expires_at,
+  }));
+  publicCache = { at: now, coupons };
+  return coupons;
+}
+
+/** Admin changed a coupon: the website should see it right away. */
+export function forgetPublicCoupons() {
+  publicCache = null;
 }
 
 export const MIN_CHARGE_PAISE = 100; // Razorpay's minimum order is ₹1

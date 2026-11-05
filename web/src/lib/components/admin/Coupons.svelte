@@ -18,6 +18,8 @@
   let planIds = $state<string[]>([]);
   let expires = $state('');
   let note = $state('');
+  let isPublic = $state(false);
+  let publicText = $state('');
 
   const PLANS = FALLBACK_PLANS.plans;
 
@@ -43,7 +45,9 @@
         once_per_user: oncePerUser,
         plan_ids: planIds.length ? planIds : null,
         expires_at: expires ? new Date(`${expires}T23:59:59`).getTime() : null,
-        note: note.trim() || null
+        note: note.trim() || null,
+        public: isPublic,
+        public_text: isPublic ? publicText.trim() || null : null
       });
       toasts.ok(`Coupon ${code.trim().toUpperCase()} created.`);
       code = '';
@@ -51,6 +55,8 @@
       expires = '';
       maxUses = null;
       planIds = [];
+      isPublic = false;
+      publicText = '';
       await load();
     } catch (err) {
       toasts.error(errorMessage(err));
@@ -63,6 +69,30 @@
     try {
       await api.admin.updateCoupon(c.code, { active: !c.active });
       toasts.ok(`${c.code} ${c.active ? 'disabled' : 'enabled'}.`);
+      await load();
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  async function togglePublic(c: AdminCoupon) {
+    try {
+      await api.admin.updateCoupon(c.code, { public: !c.public });
+      toasts.ok(c.public ? `${c.code} is no longer shown on the website.` : `${c.code} is now shown on the website.`);
+      await load();
+    } catch (e) {
+      toasts.error(errorMessage(e));
+    }
+  }
+
+  // Edit the banner text in place.
+  let editing = $state<string | null>(null);
+  let editText = $state('');
+  async function saveText(c: AdminCoupon) {
+    try {
+      await api.admin.updateCoupon(c.code, { public_text: editText.trim() || null });
+      toasts.ok('Banner text saved.');
+      editing = null;
       await load();
     } catch (e) {
       toasts.error(errorMessage(e));
@@ -132,6 +162,12 @@
     <span class="muted hint">{planIds.length ? '' : '(none ticked = all plans)'}</span>
     <label class="chk once"><input type="checkbox" bind:checked={oncePerUser} /> Once per user</label>
   </div>
+  <div class="public">
+    <label class="chk"><input type="checkbox" bind:checked={isPublic} /> <b>Show on website</b> <span class="muted">(pricing and dashboard banner)</span></label>
+    {#if isPublic}
+      <input class="input" bind:value={publicText} maxlength="140" placeholder="Dussehra Sale: 30% off every plan" />
+    {/if}
+  </div>
   <button class="btn btn-sm btn-primary" disabled={busy}>{busy ? 'Creating…' : 'Create coupon'}</button>
 </form>
 
@@ -151,7 +187,21 @@
             <tr class:off={!c.active || expired(c)}>
               <td>
                 <span class="mono code">{c.code}</span>
+                {#if c.public}<span class="badge badge-ok pub">On website</span>{/if}
                 {#if c.note}<div class="muted small">{c.note}</div>{/if}
+                {#if c.public}
+                  {#if editing === c.code}
+                    <div class="edit-text">
+                      <input class="input" bind:value={editText} maxlength="140" placeholder="Banner text" />
+                      <button class="btn btn-sm btn-primary" onclick={() => saveText(c)}>Save</button>
+                      <button class="btn btn-sm btn-ghost" onclick={() => (editing = null)}>Cancel</button>
+                    </div>
+                  {:else}
+                    <button class="banner-text" onclick={() => { editing = c.code; editText = c.public_text ?? ''; }} title="Edit banner text">
+                      “{c.public_text || label(c)}” ✎
+                    </button>
+                  {/if}
+                {/if}
               </td>
               <td>{label(c)}{c.once_per_user ? '' : ' · reusable'}</td>
               <td>{planNames(c.plan_ids)}</td>
@@ -164,6 +214,7 @@
                 {:else}<span class="badge">Disabled</span>{/if}
               </td>
               <td class="actions">
+                <button class="btn btn-sm btn-ghost" onclick={() => togglePublic(c)}>{c.public ? 'Hide from site' : 'Show on site'}</button>
                 <button class="btn btn-sm btn-ghost" onclick={() => toggle(c)}>{c.active ? 'Disable' : 'Enable'}</button>
                 <button class="btn btn-sm btn-ghost del" onclick={() => remove(c)}>{confirmDelete === c.code ? 'Confirm delete' : 'Delete'}</button>
               </td>
@@ -228,6 +279,35 @@
   }
   .hint {
     font-size: 13px;
+  }
+  .public {
+    display: grid;
+    gap: 8px;
+    font-size: 14px;
+  }
+  .public .input {
+    height: 40px;
+    max-width: 520px;
+  }
+  .pub {
+    margin-left: 6px;
+  }
+  .banner-text {
+    display: block;
+    margin-top: 4px;
+    font-size: 12.5px;
+    color: var(--accent);
+    text-align: left;
+    cursor: pointer;
+  }
+  .edit-text {
+    display: flex;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .edit-text .input {
+    height: 32px;
+    min-width: 200px;
   }
   .new .btn {
     justify-self: start;

@@ -175,6 +175,15 @@ export type CouponQuote = {
   plans: { plan_id: string; eligible: boolean; discount_paise: number; final_paise: number }[];
 };
 
+/** An offer the admin advertises on the website (e.g. "Dussehra Sale: 30% off"). */
+export type PublicCoupon = {
+  code: string;
+  label: string;
+  text: string;
+  plan_ids: string[] | null;
+  expires_at: number | null;
+};
+
 export type DeviceInfo = { user_code: string; expires_in: number };
 
 export type AccountSession = {
@@ -197,6 +206,8 @@ export type AdminCoupon = {
   plan_ids: string[] | null;
   expires_at: number | null;
   note: string | null;
+  public: boolean;
+  public_text: string | null;
   created_at: number;
   discount_total_paise: number;
 };
@@ -287,6 +298,7 @@ export function errorMessage(e: unknown): string {
 
 export const api = {
   plans: () => request<PlansResponse>('/v1/plans', { auth: false }),
+  publicCoupons: () => request<{ coupons: PublicCoupon[] }>('/v1/coupons/public', { auth: false }),
   me: () => request<Me>('/v1/me'),
   usage: () => request<UsageResponse>('/v1/usage'),
 

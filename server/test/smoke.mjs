@@ -304,6 +304,15 @@ if (process.env.CASHFREE_MOCK === '1') {
   ok((await j('/v1/billing/coupon', { token: desk, body: { code: 'FLAT100' } })).status === 400, 'disabled coupon rejected');
   ok((await j('/v1/admin/coupons/FLAT100', { token: admin, method: 'DELETE' })).data?.ok, 'admin deletes FLAT100');
   ok((await j('/v1/admin/coupons', { token: admin })).data.coupons.every((c) => c.code !== 'FLAT100'), 'deleted coupon gone from the list');
+
+  // Public offers: only coupons marked public (and usable) are advertised, with the admin's text.
+  ok((await coupon({ code: 'DIWALI30', kind: 'percent', value: 30, public: true, public_text: 'Diwali Sale: 30% off' })).data?.ok, 'admin creates a public coupon');
+  const pub = (await j('/v1/coupons/public', {})).data?.coupons ?? [];
+  const diwali = pub.find((c) => c.code === 'DIWALI30');
+  ok(diwali?.text === 'Diwali Sale: 30% off' && diwali?.label === '30% off', 'public coupon listed with its banner text');
+  ok(pub.length > 0 && !pub.some((c) => c.code === 'SAVE20'), 'private coupons are not advertised');
+  await j('/v1/admin/coupons/DIWALI30', { token: admin, body: { public: false } });
+  ok(!((await j('/v1/coupons/public', {})).data?.coupons ?? []).some((c) => c.code === 'DIWALI30'), 'hiding a coupon removes it from the website right away');
 }
 
 // ── Account self-service ──
