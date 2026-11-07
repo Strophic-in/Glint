@@ -70,6 +70,8 @@ export interface Settings {
   solidOnHover: boolean;
   bindings: Record<string, string>;
   tipsSeen: boolean;
+  /** Panels use the dragged height exactly (set by a vertical drag); false = they fit their content. */
+  fixedHeight: boolean;
 }
 
 export const DEFAULT_BINDINGS: Record<string, string> = {
@@ -111,6 +113,7 @@ const DEFAULTS: Settings = {
   solidOnHover: true,
   bindings: { ...DEFAULT_BINDINGS },
   tipsSeen: false,
+  fixedHeight: false,
 };
 
 const KEY = 'glint.settings.v1';

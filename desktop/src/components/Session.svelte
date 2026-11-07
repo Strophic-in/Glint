@@ -194,6 +194,9 @@
     background: var(--raise-2);
     color: var(--text);
   }
+  :global(main.fixed-h) .body {
+    height: max(260px, var(--panel-h, 560px));
+  }
   .body {
     max-height: max(260px, var(--panel-h, 560px));
     padding: 14px 16px 16px;

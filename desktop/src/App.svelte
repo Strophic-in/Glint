@@ -70,7 +70,8 @@
   let room = $state(window.screen.availHeight);
   function measureRoom() {
     const top = Math.max(0, window.screenY - ((window.screen as any).availTop ?? 0));
-    room = Math.floor((window.screen.availHeight - top) / settings.zoom) - 150;
+    // Floor: if the window position reads oddly, panels must still be usable and draggable.
+    room = Math.max(320, Math.floor((window.screen.availHeight - top) / settings.zoom) - 150);
   }
   const panelHeight = $derived(Math.max(SIZE.minAnswer, Math.min(answerHeight, room)));
   // Opening/closing the menu doesn't change the column's size, so refit explicitly.
@@ -94,13 +95,20 @@
   // Which edge is being dragged: the right edge changes the width, the bottom edge the answer
   // height, the corner both. The cursor stays a resize cursor until the button is released.
   let resizeMode = $state<'both' | 'x' | 'y'>('both');
+  let dragStart = { w: 0, h: 0 };
   function startResize(e: PointerEvent, mode: 'both' | 'x' | 'y') {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
     resizeMode = mode;
     document.documentElement.style.cursor = mode === 'x' ? 'ew-resize' : mode === 'y' ? 'ns-resize' : 'nwse-resize';
-    dragSize = { w: settings.width, h: settings.answerHeight };
+    // Start from what's on screen (the saved height may be capped by the screen), so the panel
+    // follows the mouse from the first pixel instead of "catching up" from an off-screen size.
+    // A panel that fits its content may be shorter than the cap: start from its visible height.
+    const body = root?.querySelector('.answer .body, .settings .body, .session .body');
+    const seen = body ? Math.round(body.getBoundingClientRect().height) : panelHeight;
+    dragStart = { w: settings.width, h: settings.fixedHeight ? panelHeight : Math.min(panelHeight, seen) };
+    dragSize = { ...dragStart };
     ipc.resizeDrag();
   }
 
@@ -151,12 +159,14 @@
       if (!dragSize) return;
       const k = window.devicePixelRatio || 1;
       const next = {
-        w: resizeMode === 'y' ? settings.width : clamp(settings.width + dx / k, SIZE.minWidth, SIZE.maxWidth),
-        h: resizeMode === 'x' ? settings.answerHeight : clamp(settings.answerHeight + dy / k, SIZE.minAnswer, SIZE.maxAnswer),
+        w: resizeMode === 'y' ? dragStart.w : clamp(dragStart.w + dx / k, SIZE.minWidth, SIZE.maxWidth),
+        h: resizeMode === 'x' ? settings.answerHeight : clamp(dragStart.h + dy / k, SIZE.minAnswer, Math.min(SIZE.maxAnswer, room)),
       };
       if (done) {
         settings.width = next.w;
         settings.answerHeight = next.h;
+        // Only a real drag locks the height (a click or the double-click reset must not).
+        if (resizeMode !== 'x' && Math.abs(dy) > 2) settings.fixedHeight = true;
         dragSize = null;
         document.documentElement.style.cursor = '';
       } else {
@@ -246,6 +256,7 @@
   class:collapsed={glint.collapsed}
   style:--answer-h={`${answerHeight}px`}
   style:--panel-h={`${panelHeight}px`}
+  class:fixed-h={settings.fixedHeight || (!!dragSize && resizeMode !== 'x')}
   onpointerenter={() => {
     hovering = true;
     measureRoom();
@@ -294,7 +305,8 @@
           class="edge edge-b"
           class:active={!!dragSize && resizeMode === 'y'}
           onpointerdown={(e) => startResize(e, 'y')}
-          title="Drag to make Glint taller or shorter"
+          ondblclick={() => (settings.fixedHeight = false)}
+          title="Drag to make Glint taller or shorter · double-click to fit the content"
         ><span class="handle"></span></div>
       {/if}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -305,6 +317,7 @@
         ondblclick={() => {
           settings.width = 720;
           settings.answerHeight = 420;
+          settings.fixedHeight = false;
         }}
         title="Drag to resize · double-click to reset"
       ></div>
@@ -392,7 +405,7 @@
     left: 12px;
     right: 20px;
     bottom: -14px;
-    height: 13px;
+    height: 22px;
     cursor: ns-resize;
   }
   .handle {

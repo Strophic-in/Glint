@@ -188,6 +188,9 @@
     background: var(--raise-2);
     color: var(--text);
   }
+  :global(main.fixed-h) .body {
+    height: var(--panel-h, 420px);
+  }
   .body {
     max-height: var(--panel-h, 420px);
     padding-right: 4px;
