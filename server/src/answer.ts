@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { assertOpen, authenticate } from './auth.js';
 import { aiConfigured, config } from './config.js';
-import { deduct, effectiveBalance, logUsage, refund } from './db.js';
+import { deduct, effectiveBalance, logUsage, refund, sessionRef } from './db.js';
 import { isLive } from './live-registry.js';
 import { mockAnswer } from './mock.js';
 import { answerCostMicros } from './pricing.js';
@@ -170,6 +170,7 @@ export async function answerRoutes(app: FastifyInstance) {
 
     const b = (req.body ?? {}) as Record<string, any>;
     const action: Action = ACTIONS.includes(b.action) ? b.action : 'answer';
+    const sessionTag = sessionRef(b.session?.id, b.session?.title);
     const chosen = resolveModel(b.model);
     const mode: Mode = MODES.includes(b.profile?.mode) ? b.profile.mode : 'general';
     // The session review sends its log of answers (incl. questions read off the screen) here.
@@ -278,6 +279,8 @@ export async function answerRoutes(app: FastifyInstance) {
           outputTokens: usage.output,
           serviceTier: usage.tier,
           costMicros: answerCostMicros({ model, tier: usage.tier, input: usage.input, cached: usage.cached, output: usage.output }),
+          session: sessionTag,
+          action,
         }).catch((e) => req.log.warn({ err: e?.message }, 'usage log failed'));
       }
     }

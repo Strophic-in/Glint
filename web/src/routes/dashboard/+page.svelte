@@ -9,6 +9,7 @@
   import { toasts } from '$lib/toast.svelte';
   import { loadScript } from '$lib/script';
   import AccountSettings from '$lib/components/AccountSettings.svelte';
+  import SessionHistory from '$lib/components/SessionHistory.svelte';
   import {
     api,
     ApiError,
@@ -178,8 +179,6 @@
   const planName = (id: string) =>
     plans.plans.find((p) => p.id === id)?.name ?? (id === 'trial' ? 'Free trial' : id);
 
-  const kindLabel = (k: string) =>
-    k === 'live' ? 'Live session' : k === 'answer' ? 'Quick answer' : k.charAt(0).toUpperCase() + k.slice(1);
 </script>
 
 <svelte:head>
@@ -303,29 +302,7 @@
       <div class="tables">
         <div class="card">
           <h3>Sessions</h3>
-          {#if usage.usage.length === 0}
-            <p class="empty muted">
-              No sessions yet. Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> in the app to start a session.
-            </p>
-          {:else}
-            <div class="table-wrap">
-              <table class="table">
-                <thead>
-                  <tr><th>Type</th><th>Duration</th><th>Started</th><th>Ended</th></tr>
-                </thead>
-                <tbody>
-                  {#each usage.usage as u, i (i)}
-                    <tr>
-                      <td>{kindLabel(u.kind)}</td>
-                      <td>{u.seconds > 0 ? formatDuration(u.seconds) : 'Included'}</td>
-                      <td class="muted">{formatDateTime(u.started_at)}</td>
-                      <td class="muted">{u.ended_at ? formatDateTime(u.ended_at) : 'Live'}</td>
-                    </tr>
-                  {/each}
-                </tbody>
-              </table>
-            </div>
-          {/if}
+          <SessionHistory rows={usage.usage} />
         </div>
 
         <div class="card">
@@ -476,8 +453,7 @@
     color: #c9ccd2;
     line-height: 1.8;
   }
-  .get kbd,
-  .empty kbd {
+  .get kbd {
     height: 22px;
     min-width: 22px;
     font-size: 11.5px;

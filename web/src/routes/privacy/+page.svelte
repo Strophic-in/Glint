@@ -88,8 +88,11 @@
   </p>
   <p><b>Usage and balance information.</b>
     Your remaining hours and their validity, hours added (purchases, the free trial and any adjustments), when live
-    sessions start and end, seconds used, number of answers, the AI model used and the amount of text processed
-    (token counts). We need this to meter your balance accurately and to bill you correctly.
+    sessions start and end, seconds used, number of answers and their type (for example "screen answer"), the AI
+    model used and the amount of text processed (token counts), and which app session each belongs to (a random
+    ID and the session's title as shown in the app, such as "Interview · Acme"), so your dashboard can list your
+    sessions. We need this to meter your balance accurately and to bill you correctly. We never store what was
+    said or answered.
   </p>
   <p><b>Sign-in sessions and devices.</b>
     For each browser or device you sign in on: a session token stored only in hashed (one-way encrypted) form,

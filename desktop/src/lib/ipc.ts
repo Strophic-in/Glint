@@ -54,8 +54,23 @@ export const ipc = {
   logout: () => invoke<void>('logout'),
   me: () => invoke<Me>('me'),
   models: () => invoke<{ models: ModelOption[]; default: string }>('models'),
-  listenStart: (mic: boolean, system: boolean, micDevice: string | null, systemDevice: string | null, lang: string) =>
-    invoke<void>('listen_start', { mic, system, micDevice, systemDevice, lang }),
+  listenStart: (
+    mic: boolean,
+    system: boolean,
+    micDevice: string | null,
+    systemDevice: string | null,
+    lang: string,
+    session: { id: string; title: string } | null,
+  ) =>
+    invoke<void>('listen_start', {
+      mic,
+      system,
+      micDevice,
+      systemDevice,
+      lang,
+      sessionId: session?.id ?? null,
+      sessionTitle: session?.title ?? null,
+    }),
   listenStop: () => invoke<void>('listen_stop'),
   ask: (id: number, body: unknown, withScreen: boolean) => invoke<void>('ask', { id, body, withScreen }),
   askCancel: () => invoke<void>('ask_cancel'),

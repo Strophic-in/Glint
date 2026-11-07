@@ -35,7 +35,16 @@ fn state(app: &AppHandle, state: &str, message: Option<&str>) {
 }
 
 /// `lang`: what the server should transcribe: ISO codes like "en" or "en,hi", or "auto".
-pub fn start(app: AppHandle, api: Api, token: String, opts: AudioOpts, id: u64, lang: &str) -> Result<ListenHandle, String> {
+/// `session`: the app session (id, title) this listening belongs to, so usage can be grouped by it.
+pub fn start(
+    app: AppHandle,
+    api: Api,
+    token: String,
+    opts: AudioOpts,
+    id: u64,
+    lang: &str,
+    session: Option<(String, String)>,
+) -> Result<ListenHandle, String> {
     let (tx, rx) = mpsc::unbounded_channel();
     let (audio, warnings) = audio::start(opts, tx)?;
     for w in warnings {
@@ -43,7 +52,10 @@ pub fn start(app: AppHandle, api: Api, token: String, opts: AudioOpts, id: u64, 
     }
     let (stop_tx, stop_rx) = watch::channel(false);
     let lang: String = lang.chars().filter(|c| c.is_ascii_lowercase() || *c == ',').take(20).collect();
-    let path = format!("/v1/listen?lang={}", if lang.is_empty() { "en" } else { &lang });
+    let mut path = format!("/v1/listen?lang={}", if lang.is_empty() { "en" } else { &lang });
+    if let Some((sid, title)) = session {
+        path.push_str(&format!("&session={}&title={}", query_encode(&sid), query_encode(&title)));
+    }
     tauri::async_runtime::spawn(run(app, api, token, rx, stop_rx, id, path));
     Ok(ListenHandle { id, stop: stop_tx, _audio: audio })
 }
@@ -203,4 +215,16 @@ async fn session(
             }
         }
     }
+}
+
+/// Percent-encode a query value (UTF-8 bytes; unreserved characters pass through).
+fn query_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
 }

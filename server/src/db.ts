@@ -160,6 +160,13 @@ ALTER TABLE usage ADD COLUMN IF NOT EXISTS service_tier text;
 -- v4: public coupons, advertised on the website with the admin's banner text.
 ALTER TABLE coupons ADD COLUMN IF NOT EXISTS public boolean NOT NULL DEFAULT false;
 ALTER TABLE coupons ADD COLUMN IF NOT EXISTS public_text text;
+
+-- v5: which app session a usage row belongs to, so the dashboard can group them. The title is the
+-- user's own label for the session (e.g. "Interview · Acme"); no conversation content is stored.
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS session_id text;
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS session_title text;
+ALTER TABLE usage ADD COLUMN IF NOT EXISTS action text;
+CREATE INDEX IF NOT EXISTS usage_session ON usage(user_id, session_id);
 `;
 
 /** Create/upgrade tables. Safe to run on every boot and from several instances at once. */
@@ -298,11 +305,28 @@ export async function logUsage(u: {
   serviceTier?: string | null;
   /** What the row cost us in USD micro-dollars (see pricing.ts). */
   costMicros: number;
+  /** The app session this belongs to (see sessionRef). */
+  session?: SessionRef | null;
+  /** For answers: answer, screen, ask, shorter, … */
+  action?: string | null;
 }) {
   await sql`
     INSERT INTO usage (user_id, kind, seconds, started_at, ended_at, model, input_tokens, cached_tokens, output_tokens,
-                       audio_ms, service_tier, cost_micros)
+                       audio_ms, service_tier, cost_micros, session_id, session_title, action)
     VALUES (${u.userId}, ${u.kind}, ${u.seconds}, ${u.startedAt}, ${u.endedAt},
             ${u.model ?? null}, ${u.inputTokens ?? null}, ${u.cachedTokens ?? null}, ${u.outputTokens ?? null},
-            ${u.audioMs ?? null}, ${u.serviceTier ?? null}, ${u.costMicros})`;
+            ${u.audioMs ?? null}, ${u.serviceTier ?? null}, ${u.costMicros},
+            ${u.session?.id ?? null}, ${u.session?.title ?? null}, ${u.action ?? null})`;
+}
+
+export interface SessionRef {
+  id: string;
+  title: string | null;
+}
+
+/** The app's session id + title from untrusted input: a short opaque id and a short label, or null. */
+export function sessionRef(id: unknown, title: unknown): SessionRef | null {
+  if (typeof id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(id)) return null;
+  const t = typeof title === 'string' ? title.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80) : '';
+  return { id, title: t || null };
 }

@@ -249,8 +249,9 @@ export async function authRoutes(app: FastifyInstance) {
   app.get('/v1/usage', async (req) => {
     const user = await authenticate(req);
     const [usage, orders] = await Promise.all([
-      sql`SELECT kind, seconds, started_at, ended_at FROM usage WHERE user_id = ${user.id}
-          ORDER BY started_at DESC LIMIT 50`,
+      // Enough rows to show recent sessions whole (one session is a few listen rows plus its answers).
+      sql`SELECT kind, seconds, started_at, ended_at, session_id, session_title, action FROM usage
+          WHERE user_id = ${user.id} ORDER BY started_at DESC LIMIT 400`,
       sql`SELECT id, plan_id, amount_paise, seconds, status, created_at, paid_at FROM orders
           WHERE user_id = ${user.id} AND status = 'paid' ORDER BY created_at DESC LIMIT 50`,
     ]);

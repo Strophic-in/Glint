@@ -66,6 +66,7 @@ class Recorder {
     this.entries = [];
     this.lines = new Map();
     this.title = sessionLabel();
+    glint.sessionTag = { id: crypto.randomUUID(), title: this.title };
     this.file = `${stamp(this.startedAt)} ${this.title.replace(/ · /g, ' - ')}`;
     // Nothing from before (an earlier session's captions or answers) carries into this one.
     glint.resetConversation();
@@ -125,6 +126,7 @@ class Recorder {
           ipc.sessionReview({
             action: 'summary',
             model: settings.model || undefined,
+            session: glint.sessionTag ?? undefined,
             transcript,
             // What Glint answered, including questions read off the screen, so the review covers them.
             question: this.entries

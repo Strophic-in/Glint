@@ -115,12 +115,15 @@ pub fn listen_start(
     mic_device: Option<String>,
     system_device: Option<String>,
     lang: Option<String>,
+    session_id: Option<String>,
+    session_title: Option<String>,
 ) -> R<()> {
     let token = state.token()?;
     state.stop_listen();
     let id = state.listen_seq.fetch_add(1, Ordering::SeqCst) + 1;
     let opts = AudioOpts { mic, system, mic_device, system_device };
-    let handle = listen::start(app.clone(), state.api.clone(), token, opts, id, lang.as_deref().unwrap_or("en"))
+    let session = session_id.map(|id| (id, session_title.unwrap_or_default()));
+    let handle = listen::start(app.clone(), state.api.clone(), token, opts, id, lang.as_deref().unwrap_or("en"), session)
         .map_err(|m| ApiError::local("audio", m))?;
     *state.listen.lock().unwrap() = Some(handle);
     Ok(())

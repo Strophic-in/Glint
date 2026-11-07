@@ -157,6 +157,8 @@ class Glint {
   onTurnFinal: ((t: Turn) => void) | null = null;
   /** Glint listens and answers only inside a session (set by recorder.svelte.ts). */
   sessionActive = $state(false);
+  /** Sent with listening and answers so the dashboard can group usage by session (id + label only). */
+  sessionTag: { id: string; title: string } | null = null;
   startSession: (() => Promise<void>) | null = null;
   private autoTimer: ReturnType<typeof setTimeout> | undefined;
   private autoAnsweredId = '';
@@ -318,6 +320,7 @@ class Glint {
           settings.micDevice || null,
           settings.speakerDevice || null,
           settings.speechLanguage || 'en',
+          this.sessionTag,
         );
       } catch (e) {
         this.listen = 'error';
@@ -491,6 +494,7 @@ class Glint {
           transcript,
           history,
           auto: !!opts.auto,
+          session: this.sessionTag ?? undefined,
           profile: {
             mode: settings.mode,
             context: settings.context,

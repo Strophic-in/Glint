@@ -16,4 +16,4 @@ export const BUSINESS = {
 /** Who provides the service: the registered name once it is filled in, else the brand. */
 export const OPERATOR = BUSINESS.legalName || BRAND;
 
-export const POLICY_UPDATED = '4 November 2026';
+export const POLICY_UPDATED = '8 November 2026';

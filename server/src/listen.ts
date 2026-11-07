@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import WebSocket from 'ws';
 import { assertOpen, authenticate } from './auth.js';
 import { aiConfigured, config } from './config.js';
-import { deduct, effectiveBalance, logUsage, type UserRow } from './db.js';
+import { deduct, effectiveBalance, logUsage, sessionRef, type SessionRef, type UserRow } from './db.js';
 import { claimLive, releaseLive, type CloseReason, type LiveHandle } from './live-registry.js';
 import { MockTranscriber } from './mock.js';
 import { sttCostMicros } from './pricing.js';
@@ -365,11 +365,14 @@ export async function listenRoutes(app: FastifyInstance) {
         if (!aiConfigured()) throw new HttpError(503, 'not_configured', 'AI is not configured on the server.');
         (req as any).user = user;
         (req as any).balance = await effectiveBalance(user.id);
-        (req as any).langs = parseLangs((req.query as Record<string, unknown> | undefined)?.lang);
+        const q = (req.query as Record<string, unknown> | undefined) ?? {};
+        (req as any).langs = parseLangs(q.lang);
+        (req as any).session = sessionRef(q.session, q.title);
       },
     },
     (socket, req) => {
       const user = (req as any).user as UserRow;
+      const session = (req as any).session as SessionRef | null;
       const startedAt = Date.now();
       let lastCharge = startedAt;
       let lastSpeech = startedAt;
@@ -445,6 +448,7 @@ export async function listenRoutes(app: FastifyInstance) {
                   model: cost.model,
                   audioMs: Math.round((audioBytes / PCM_BYTES_PER_SEC) * 1000),
                   costMicros: cost.costMicros,
+                  session,
                 })
               : undefined,
           )

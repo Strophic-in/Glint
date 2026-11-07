@@ -140,6 +140,11 @@ export type UsageRow = {
   seconds: number;
   started_at: number;
   ended_at: number | null;
+  /** The app session this row belongs to (null for app versions before 0.3.3). */
+  session_id?: string | null;
+  session_title?: string | null;
+  /** For answers: answer, screen, ask, shorter, expand, followups, recap, summary. */
+  action?: string | null;
 };
 
 export type OrderRow = {
