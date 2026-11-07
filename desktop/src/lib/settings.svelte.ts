@@ -66,6 +66,8 @@ export interface Settings {
   speakerDevice: string;
   protected: boolean;
   opacity: number;
+  /** Go fully opaque while the mouse is over Glint, so a see-through overlay is still easy to read. */
+  solidOnHover: boolean;
   bindings: Record<string, string>;
   tipsSeen: boolean;
 }
@@ -76,6 +78,8 @@ export const DEFAULT_BINDINGS: Record<string, string> = {
   screen: 'Ctrl+Shift+Enter',
   listen: 'Ctrl+Shift+L',
   type: 'Ctrl+Shift+Space',
+  toggle_code: 'Ctrl+Alt+C',
+  shortcuts: 'Ctrl+Shift+Slash',
   scroll_up: 'Ctrl+Up',
   scroll_down: 'Ctrl+Down',
 };
@@ -104,11 +108,20 @@ const DEFAULTS: Settings = {
   speakerDevice: '',
   protected: true,
   opacity: 0.94,
+  solidOnHover: true,
   bindings: { ...DEFAULT_BINDINGS },
   tipsSeen: false,
 };
 
 const KEY = 'glint.settings.v1';
+
+/** Early 0.2.4 builds shipped Ctrl+K and Ctrl+Shift+C, which take those keys away from every other
+ *  app (Slack, VS Code, browsers, terminals). Move anyone still on them to the new defaults. */
+const RETIRED: Record<string, string> = { shortcuts: 'Ctrl+K', toggle_code: 'Ctrl+Shift+C' };
+function migrateBindings(b: Record<string, string>) {
+  for (const [action, old] of Object.entries(RETIRED)) if (b[action] === old) b[action] = DEFAULT_BINDINGS[action];
+  return b;
+}
 
 function load(): Settings {
   try {
@@ -118,7 +131,7 @@ function load(): Settings {
       ...raw,
       session: { ...DEFAULTS.session, ...(raw.session ?? {}) },
       docs: Array.isArray(raw.docs) ? raw.docs : [],
-      bindings: { ...DEFAULT_BINDINGS, ...(raw.bindings ?? {}) },
+      bindings: migrateBindings({ ...DEFAULT_BINDINGS, ...(raw.bindings ?? {}) }),
     };
   } catch {
     return structuredClone(DEFAULTS);
@@ -197,7 +210,7 @@ export const MODES: ModeInfo[] = [
 ];
 
 /** Limits for the corner grip. */
-export const SIZE = { minWidth: 480, maxWidth: 1400, minAnswer: 140, maxAnswer: 1000 };
+export const SIZE = { minWidth: 520, maxWidth: 1400, minAnswer: 140, maxAnswer: 1000 };
 
 export const SPEECH_LANGUAGES: { id: string; label: string }[] = [
   { id: 'en', label: 'English' },

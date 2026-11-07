@@ -67,8 +67,8 @@ class Recorder {
     this.lines = new Map();
     this.title = sessionLabel();
     this.file = `${stamp(this.startedAt)} ${this.title.replace(/ · /g, ' - ')}`;
-    // Captions already on screen belong to this session too.
-    for (const t of glint.turns) if (t.final) this.line(t);
+    // Nothing from before (an earlier session's captions or answers) carries into this one.
+    glint.resetConversation();
     // Screenshots go into a folder named like the file (created only when the first one is saved).
     await ipc.setSessionAssets(this.file).catch(() => {});
     this.timer = setInterval(() => void this.save(), AUTOSAVE_MS);

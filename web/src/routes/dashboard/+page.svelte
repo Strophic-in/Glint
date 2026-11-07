@@ -219,9 +219,12 @@
           {:else if balance > 0}
             Ready when you are
           {:else}
-            Top up to go live
+            Top up to start your next session
           {/if}
         </p>
+        {#if balance >= 45 * 60}
+          <p class="calls">Enough for about {Math.floor(balance / 3600) || 1} one-hour call{Math.floor(balance / 3600) > 1 ? 's' : ''}, or {Math.floor(balance / 1800)} half-hour ones.</p>
+        {/if}
         {#if low}
           <p class="warn">{balance > 0 ? 'Running low — top up before your next call.' : 'You are out of time.'}</p>
         {/if}
@@ -231,11 +234,11 @@
       <article class="card get">
         <span class="label">Get the app</span>
         <h2>{BRAND} for Windows</h2>
-        <p class="muted">Windows 10 2004+ / 11 · ~2.5 MB</p>
+        <p class="muted">Windows 10 2004+ / 11 · ~5 MB</p>
         <ol>
           <li>Install and open {BRAND}.</li>
           <li>Click <b>Sign in with Google</b> and approve in your browser.</li>
-          <li>Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> to go live, <kbd>Ctrl</kbd> <kbd>Enter</kbd> to answer.</li>
+          <li>Add your company, role and resume from the session chip, then press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> to start a session. Questions are answered as they come, or press <kbd>Ctrl</kbd> <kbd>Enter</kbd>.</li>
         </ol>
         <DownloadButton size="md" primary={false} />
         <InstallHelp align="left" />
@@ -302,7 +305,7 @@
           <h3>Sessions</h3>
           {#if usage.usage.length === 0}
             <p class="empty muted">
-              No sessions yet. Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> in the app to go live.
+              No sessions yet. Press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> in the app to start a session.
             </p>
           {:else}
             <div class="table-wrap">
@@ -441,6 +444,11 @@
   }
   .balance .muted {
     margin-top: 10px;
+  }
+  .calls {
+    margin-top: 6px;
+    font-size: 14px;
+    color: var(--text);
   }
   .warn {
     margin-top: 10px;

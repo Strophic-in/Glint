@@ -110,6 +110,11 @@ export function userPrompt(a: {
   }
   parts.push(TASKS[a.action]);
   if (a.action === 'ask' && a.question.trim()) parts.push(`User's question: ${a.question.trim()}`);
+  // The app pulls the question out of what "Them" said; answer that one, using the rest of the
+  // conversation only as context (the words around it are often filler or the end of a previous topic).
+  if (a.action === 'answer' && a.question.trim()) {
+    parts.push(`Question "Them" just asked (detected from the call; transcription may be slightly off): ${a.question.trim()}`);
+  }
   if (a.action === 'summary' && a.question.trim()) {
     parts.push(`<session_answers note="what Glint answered during the session, including questions read off the screen">
 ${a.question.trim()}

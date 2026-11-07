@@ -27,7 +27,9 @@
     </button>
 
     <nav id="site-nav" class:open>
+      <a href="/#use-cases">Use cases</a>
       <a href="/#features">Features</a>
+      <a href="/#compare">Why Glint</a>
       <a href="/#pricing">Pricing</a>
       <a href="/#download">Download</a>
       {#if session.signedIn}

@@ -19,3 +19,6 @@ desktop/release/
 .claude/
 *.msix
 *.appx
+
+# scroll-craft verification screenshots (regenerate with scrollcraft/builds/*/shots.mjs)
+scrollcraft/builds/*/lab/

@@ -82,12 +82,26 @@
       />
     {/if}
     <div class="item static">
-      <Icon name="sparkle" size={15} /> Zoom
+      <Icon name="zoom" size={15} /> Zoom
       <span class="zoom">
         <button onclick={() => zoomBy(-0.1)} aria-label="Zoom out" disabled={settings.zoom <= 0.7}><Icon name="minus" size={13} /></button>
         <span>{Math.round(settings.zoom * 100)}%</span>
         <button onclick={() => zoomBy(0.1)} aria-label="Zoom in" disabled={settings.zoom >= 1.5}><Icon name="plus" size={13} /></button>
       </span>
+    </div>
+
+    <div class="item static opacity">
+      <Icon name="drop" size={15} /> Opacity
+      <input
+        type="range"
+        min="0.12"
+        max="1"
+        step="0.02"
+        bind:value={settings.opacity}
+        aria-label="Overlay opacity"
+        title={settings.solidOnHover ? 'Turns solid while your mouse is over Glint' : ''}
+      />
+      <span class="pct">{Math.round(settings.opacity * 100)}%</span>
     </div>
 
     <div class="sep"></div>
@@ -251,5 +265,17 @@
   }
   .zoom button:disabled {
     opacity: 0.4;
+  }
+  .opacity input {
+    margin-left: auto;
+    width: 118px;
+    accent-color: var(--accent);
+    cursor: pointer;
+  }
+  .pct {
+    width: 34px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    font-size: 12.5px;
   }
 </style>

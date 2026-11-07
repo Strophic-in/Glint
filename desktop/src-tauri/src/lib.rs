@@ -14,6 +14,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Emitter, Manager, PhysicalPosition};
 
 const WIDTH: f64 = 720.0;
+const CODE_WIDTH: f64 = 420.0;
 
 pub fn run() {
     tauri::Builder::default()
@@ -33,6 +34,16 @@ pub fn run() {
                     let x = m.position().x + ((m.size().width as f64 - WIDTH * scale) / 2.0) as i32;
                     let y = m.position().y + (12.0 * scale) as i32;
                     let _ = w.set_position(PhysicalPosition::new(x, y));
+                    // The code panel is its own window now (freely movable/resizable by the user);
+                    // give it a sensible starting spot just to the overlay's left, same as the old
+                    // inline panel's default. It stays hidden until there's code to show.
+                    if let Some(code_win) = win::code_window(&handle) {
+                        let gap = (8.0 * scale) as i32;
+                        let code_w = (CODE_WIDTH * scale) as i32;
+                        let _ = code_win.set_position(PhysicalPosition::new(x - code_w - gap, y));
+                        win::set_noactivate(&code_win, true);
+                        win::set_protected(&code_win, true);
+                    }
                 }
                 win::set_noactivate(&w, true);
                 win::set_protected(&w, true);

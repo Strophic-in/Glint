@@ -14,7 +14,7 @@ students and professionals in meetings, developers working through problems on s
 ## How Glint beats Cluely
 | | Cluely | Glint |
 |---|---|---|
-| App weight | Electron (bundles Chromium + Node) | Tauri: **2.5 MB installer**, 6 MB Rust core, uses Windows' built-in WebView2 |
+| App weight | Electron (bundles Chromium + Node) | Tauri: **~5 MB installer**, 6 MB Rust core, uses Windows' built-in WebView2 |
 | Focus | Can grab focus | **Never takes focus.** Typing mode hands it back to your app |
 | Who said what | Single mixed stream | **Both sides, labelled** (system audio = them, mic = you) |
 | Proactive | Press to ask | **Auto-answer** when they ask a question, plus a "question detected" hint |
@@ -27,6 +27,13 @@ students and professionals in meetings, developers working through problems on s
 | Model choice | Fixed | **Model picker** (GPT-6 Luna / 6.1 Terra / 6.1 Sol), showing only models the server can use |
 | Out of the way | Hide or show | **Collapses to a floating logo bubble** you can drag anywhere, tap to reopen |
 | Operator control | — | **Admin panel**: stats, block users, add/deduct time, force logout, kill live sessions, maintenance mode, sign-up switch, pricing rules, audit log |
+
+## USP in one line per audience
+* **Job seekers**: answers in your own voice, grounded in your resume, plus an AI review after every
+  interview so the next one goes better. That review loop is the reason to come back and buy again.
+* **Sales**: objection handling and the next question, live, with notes saved automatically.
+* **Second-language speakers**: understands Hinglish, hands you a clean English sentence to say.
+* **Everyone**: pay per hour in rupees, no subscription; never takes focus; ~5 MB.
 
 ## Pricing: hours, not credits
 Hours fit how users think ("one interview ≈ 1 hour"), and they're simple to explain on a sales call.
@@ -64,6 +71,14 @@ saving ~₹30/h), run auto-answers on the Instant tier, or raise Max to ₹3,999
   the answer card (first line = what to say, then bullets), follow-up chips
   (Shorter, More detail, Follow-up questions, Recap) and the ask box.
 * The window resizes to its content, so the transparent area never blocks clicks.
+* **Opacity lives where you need it mid-call**: a slider in the ⋮ quick menu (and in Settings), plus
+  "solid while I point at it" (default on): see-through while you glance past it, fully readable on hover.
+* **Answer history**: ‹ 3/5 › in the answer header. An auto-answer never destroys the one you were reading,
+  and Shorter / More detail act on the answer on screen.
+* **Guard rails a paying user needs**: warnings at 10 and 2 minutes left while live, the balance refreshes
+  by itself after a top-up (with a thank-you), a "can't hear the other side" check one minute into
+  listening (usually a headset that isn't the Windows default), and a nudge to add a resume when an
+  interview session starts without one.
 * Settings stay basic on purpose: Mode, About you, speed tier, language, auto-answer, screen,
   audio sources and devices, hide from share, opacity, shortcuts, account.
 

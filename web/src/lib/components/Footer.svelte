@@ -14,6 +14,7 @@
     <nav class="cols" aria-label="Footer">
       <div>
         <h4>Product</h4>
+        <a href="/#use-cases">Use cases</a>
         <a href="/#features">Features</a>
         <a href="/#pricing">Pricing</a>
         <a href="/#download">Download</a>

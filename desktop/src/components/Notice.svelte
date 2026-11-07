@@ -9,6 +9,10 @@
     <span class="msg">{glint.notice.message}</span>
     {#if glint.notice.action === 'buy'}
       <button class="cta" onclick={() => glint.buy()}>Add hours</button>
+    {:else if glint.notice.action === 'setup'}
+      <button class="cta" onclick={() => { glint.notice = null; glint.expand(); glint.view = 'session'; }}>Set up</button>
+    {:else if glint.notice.action === 'settings'}
+      <button class="cta" onclick={() => { glint.notice = null; glint.expand(); glint.view = 'settings'; }}>Open settings</button>
     {:else if glint.notice.action === 'session'}
       <button class="cta" onclick={() => { glint.notice = null; glint.startSession?.(); }}>Start session</button>
     {:else if glint.notice.action === 'reveal' && glint.notice.path}

@@ -9,7 +9,8 @@
   let body: HTMLDivElement | undefined = $state();
   let copied = $state(false);
 
-  const a = $derived(glint.answer);
+  const a = $derived(glint.shown);
+  const total = $derived(glint.history.length);
 
   onMount(() => {
     glint.scrollBy = (dy) => body?.scrollBy({ top: dy, behavior: 'smooth' });
@@ -50,8 +51,18 @@
 {#if a}
   <section class="answer">
     <header>
+      {#if total > 1}
+        <span class="nav" aria-label="Earlier answers">
+          <button onclick={() => glint.showAnswer(-1)} disabled={glint.shownIdx <= 0} title="Previous answer" aria-label="Previous answer">
+            <Icon name="chevron-left" size={13} />
+          </button>
+          <span class="pos">{glint.shownIdx + 1}/{total}</span>
+          <button onclick={() => glint.showAnswer(1)} disabled={glint.viewIdx === null} title="Next answer" aria-label="Next answer">
+            <Icon name="chevron-right" size={13} />
+          </button>
+        </span>
+      {/if}
       <span class="label">{a.label}{a.auto ? ' · auto' : ''}</span>
-      {#if a.question}<span class="q" title={a.question}>“{a.question}”</span>{/if}
       <span class="grow"></span>
       {#if a.firstMs}<span class="meta" title="Time to first word">{(a.firstMs / 1000).toFixed(1)}s</span>{/if}
       <button onclick={copyAll} title="Copy answer" disabled={!a.text}>
@@ -61,6 +72,10 @@
         <Icon name="x" size={14} />
       </button>
     </header>
+
+    {#if a.question}
+      <p class="asked" title={a.question}><span class="qmark" aria-hidden="true">Q</span>{a.question}</p>
+    {/if}
 
     {#if a.status === 'thinking'}
       <div class="thinking" aria-label="Thinking">
@@ -102,6 +117,26 @@
     height: 24px;
     margin-bottom: 6px;
   }
+  .nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    margin-right: 2px;
+    color: var(--muted);
+  }
+  .nav button {
+    width: 22px;
+    height: 22px;
+  }
+  .nav button:disabled {
+    opacity: 0.35;
+  }
+  .pos {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    min-width: 28px;
+    text-align: center;
+  }
   .label {
     font-size: 11px;
     font-weight: 700;
@@ -110,13 +145,28 @@
     color: var(--accent);
     white-space: nowrap;
   }
-  .q {
-    color: var(--muted);
-    font-size: 12.5px;
+  .asked {
+    margin: 0 0 8px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: var(--question-bg);
+    color: var(--question);
+    font-weight: 600;
+    font-size: 13.5px;
+    line-height: 1.4;
+    user-select: text;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
+  }
+  .qmark {
+    font-size: 10.5px;
+    font-weight: 800;
+    letter-spacing: 0.5px;
+    opacity: 0.75;
+    margin-right: 8px;
   }
   .grow {
     flex: 1;

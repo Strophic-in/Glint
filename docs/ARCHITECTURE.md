@@ -33,7 +33,7 @@ can see your screen, and streams answers into a private overlay in under a secon
 
 | Decision | Choice | Why |
 |---|---|---|
-| Desktop shell | **Tauri 2** (Rust + WebView2) | 2.5 MB installer (measured) and ~6 MB RAM for the Rust core, plus Windows' built-in WebView2. No bundled Chromium or Node runtime, unlike Electron (what Cluely ships). Native Rust audio and screen capture. |
+| Desktop shell | **Tauri 2** (Rust + WebView2) | ~4.5 MB installer (measured, v0.3.0) and ~6 MB RAM for the Rust core, plus Windows' built-in WebView2. No bundled Chromium or Node runtime, unlike Electron (what Cluely ships). Native Rust audio and screen capture. |
 | Desktop UI | **Svelte 5** | Compiles away, no virtual DOM, tiny bundle, instant paint. |
 | Audio | **cpal / WASAPI** mic + loopback | System audio without virtual cables or drivers. |
 | Silence gate | Client-side energy VAD | We only upload speech, so bandwidth and STT cost drop ~50%. The client also decides turn ends, which keeps latency predictable. |

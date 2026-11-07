@@ -130,7 +130,6 @@ pub fn listen_start(
 pub fn listen_stop(state: State<'_, AppState>) {
     state.stop_listen();
 }
-
 /// Start an answer. The latest request wins: any answer still streaming is cancelled.
 #[tauri::command]
 pub fn ask(app: AppHandle, state: State<'_, AppState>, id: u64, body: Value, with_screen: bool) -> R<()> {
@@ -272,10 +271,11 @@ pub fn install_kind() -> &'static str {
     if packaged { "store" } else { "direct" }
 }
 
-/// Start a corner resize (call on pointerdown on the resize grip).
+/// Start a corner resize (call on pointerdown on the resize grip). Scoped to whichever window's
+/// frontend called this, so the overlay and the code panel window can resize independently.
 #[tauri::command]
-pub fn resize_drag(app: AppHandle) {
-    win::track_resize(&app);
+pub fn resize_drag(window: WebviewWindow) {
+    win::track_resize(&window);
 }
 
 /// Keep a recent screen frame while live, so auto-answers can include the screen instantly.

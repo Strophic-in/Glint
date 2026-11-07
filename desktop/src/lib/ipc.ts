@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listen, emit as tauriEmit, type UnlistenFn } from '@tauri-apps/api/event';
 
 export interface User {
   id: string;
@@ -90,4 +90,9 @@ export const ipc = {
 
 export function on<T>(event: string, cb: (payload: T) => void): Promise<UnlistenFn> {
   return listen<T>(event, (e) => cb(e.payload));
+}
+
+/** Broadcast to every window (the overlay and the code panel window share app state this way). */
+export function emit<T>(event: string, payload: T): Promise<void> {
+  return tauriEmit(event, payload);
 }

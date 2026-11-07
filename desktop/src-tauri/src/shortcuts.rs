@@ -14,6 +14,8 @@ pub const DEFAULTS: &[(&str, &str)] = &[
     ("screen", "Ctrl+Shift+Enter"),
     ("listen", "Ctrl+Shift+L"),
     ("type", "Ctrl+Shift+Space"),
+    ("toggle_code", "Ctrl+Alt+C"),
+    ("shortcuts", "Ctrl+Shift+Slash"),
     ("scroll_up", "Ctrl+Up"),
     ("scroll_down", "Ctrl+Down"),
 ];

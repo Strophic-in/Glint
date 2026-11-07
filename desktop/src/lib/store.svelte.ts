@@ -1,6 +1,7 @@
 import { tick } from 'svelte';
 import { errorMessage, ipc, on, type ApiError, type Me, type User } from './ipc';
-import { isQuestion } from './question';
+import { extractQuestion } from './question';
+import { formatLeft as fmtLeft } from './time';
 import { MODES, settings } from './settings.svelte';
 
 export type Action = 'answer' | 'screen' | 'ask' | 'shorter' | 'expand' | 'followups' | 'recap';
@@ -32,7 +33,7 @@ export interface Answer {
 export interface Notice {
   kind: 'info' | 'warn' | 'error' | 'balance';
   message: string;
-  action?: 'buy' | 'retry' | 'signin' | 'reveal' | 'session';
+  action?: 'buy' | 'retry' | 'signin' | 'reveal' | 'session' | 'settings' | 'setup';
   /** File to show in Explorer for action 'reveal'. */
   path?: string;
 }
@@ -48,6 +49,8 @@ const LABELS: Record<Action, string> = {
 };
 
 const MAX_TURNS = 300;
+/** Answers kept for the ‹ › history in this session. */
+const MAX_HISTORY = 40;
 
 /** Only send the session fields the current mode uses. */
 function sessionForMode() {
@@ -86,8 +89,13 @@ class Glint {
   levels = $state({ you: 0, them: 0 });
   turns = $state<Turn[]>([]);
   answer = $state<Answer | null>(null);
+  /** Every answer in this session, oldest first (the live one is last). */
+  history = $state<Answer[]>([]);
+  /** Which history entry is on screen; null follows the newest. */
+  viewIdx = $state<number | null>(null);
   notice = $state<Notice | null>(null);
-  hint = $state(false);
+  /** A question the other side asked that wasn't auto-answered ('' = none), offered as a button. */
+  hint = $state('');
 
   shortcutErrors = $state<Record<string, string>>({});
   view = $state<'main' | 'settings' | 'session'>('main');
@@ -96,9 +104,50 @@ class Glint {
   /** An answer arrived while collapsed. */
   unread = $state(false);
   menuOpen = $state(false);
+  shortcutsOpen = $state(false);
   typing = $state(false);
   visible = $state(true);
   showTranscript = $state(false);
+
+  /** The answer on screen: the newest, or an older one picked with ‹ ›. Hidden once dismissed. */
+  get shown(): Answer | null {
+    if (!this.answer) return null;
+    return this.viewIdx === null ? this.answer : (this.history[this.viewIdx] ?? this.answer);
+  }
+
+  /** Position of the shown answer in history, 0-based. */
+  get shownIdx() {
+    return this.viewIdx ?? this.history.length - 1;
+  }
+
+  showAnswer(step: number) {
+    const i = Math.min(this.history.length - 1, Math.max(0, this.shownIdx + step));
+    this.viewIdx = i === this.history.length - 1 ? null : i;
+  }
+
+  /** Last time each side was audible, for the "can't hear the call" check. */
+  private heard = { you: 0, them: 0 };
+  private audioCheck: ReturnType<typeof setTimeout> | undefined;
+
+  /** A minute into listening: if you've been talking but the call side has been silent the whole
+   *  time, the call is probably playing through a device Glint isn't capturing (often a headset). */
+  private scheduleAudioCheck() {
+    clearTimeout(this.audioCheck);
+    this.heard = { you: 0, them: 0 };
+    this.audioCheck = setTimeout(() => {
+      if (this.listen !== 'live' || !settings.system) return;
+      if (this.heard.you && !this.heard.them) {
+        this.notify(
+          {
+            kind: 'warn',
+            message: "Glint can't hear the other side of the call. If you use headphones, pick them under Settings → Audio.",
+            action: 'settings',
+          },
+          0,
+        );
+      }
+    }, 60_000);
+  }
 
   private seq = 0;
   private lastAnswer: { question: string; text: string } | null = null;
@@ -122,6 +171,7 @@ class Glint {
       on<any>('listen:msg', (m) => this.onListenMsg(m)),
       on<{ src: 'you' | 'them'; level: number }>('listen:level', ({ src, level }) => {
         this.levels[src] = Math.max(level, this.levels[src] * 0.6);
+        if (level > 0.08) this.heard[src] = Date.now();
       }),
       on<string>('shortcut', (a) => this.onShortcut(a)),
       on<boolean>('visibility', (v) => (this.visible = v)),
@@ -153,8 +203,21 @@ class Glint {
   }
 
   setBalance(seconds: number) {
+    const before = this.balance;
     this.balance = seconds;
     this.balanceAt = Date.now();
+    // Warn while it can still be fixed, not when the call cuts out: once at 10 min, again at 2 min.
+    if (this.phase !== 'ready' || this.listen === 'off') return;
+    for (const mark of [120, 600]) {
+      if (before > mark && seconds <= mark && seconds > 0) {
+        const mins = Math.max(1, Math.round(seconds / 60));
+        this.notify(
+          { kind: 'balance', message: `${mins} minute${mins === 1 ? '' : 's'} of Glint time left. Top up now so this call doesn't cut out.`, action: 'buy' },
+          mark === 120 ? 0 : 15000,
+        );
+        break;
+      }
+    }
   }
 
   /** Balance right now: while live, count down locally between the server's 10 s updates. */
@@ -199,12 +262,38 @@ class Glint {
     this.user = null;
     this.turns = [];
     this.answer = null;
+    this.history = [];
+    this.viewIdx = null;
     this.view = 'main';
     this.phase = 'signedOut';
   }
 
   buy() {
     ipc.openUrl(`${this.webUrl}/dashboard#buy`);
+    this.watchTopUp();
+  }
+
+  /** After opening checkout, check the balance every 10 s for 15 min so a purchase shows up in the
+   *  app by itself, with a confirmation, instead of after a restart. */
+  private topUpTimer: ReturnType<typeof setInterval> | undefined;
+  private watchTopUp() {
+    clearInterval(this.topUpTimer);
+    const start = this.balanceNow(Date.now());
+    const until = Date.now() + 15 * 60_000;
+    this.topUpTimer = setInterval(async () => {
+      if (Date.now() > until || this.phase !== 'ready') return clearInterval(this.topUpTimer);
+      try {
+        const me = await ipc.me();
+        // While live the balance ticks down, so only a clear jump counts as a purchase.
+        if (me.balance_seconds > start + 60) {
+          clearInterval(this.topUpTimer);
+          this.setMe(me);
+          this.notify({ kind: 'info', message: `Hours added. You now have ${fmtLeft(me.balance_seconds)}. Thank you!` }, 8000);
+        }
+      } catch {
+        /* offline for a moment: try again on the next tick */
+      }
+    }, 10_000);
   }
 
   // ── Notices ─────────────────────────────────────────────
@@ -240,8 +329,11 @@ class Glint {
   }
 
   private onListenState(e: { state: ListenState | 'off'; message?: string }) {
+    const was = this.listen;
     this.listen = e.state;
     if (e.state === 'live' && !this.listenSince) this.listenSince = Date.now();
+    if (e.state === 'live' && was === 'connecting') this.scheduleAudioCheck();
+    if (e.state === 'off') clearTimeout(this.audioCheck);
     if (e.state === 'off' || e.state === 'error') {
       this.listenSince = 0;
       this.levels = { you: 0, them: 0 };
@@ -292,9 +384,10 @@ class Glint {
     if (!last || last.id !== id) return;
     // A question can span two quick segments: include the previous one if it ended < 3 s ago.
     const prev = recent.length === 2 && last.at - recent[0].at < 3000 ? recent[0].text + ' ' : '';
-    if (!isQuestion(prev + last.text)) return;
+    const found = extractQuestion(prev + last.text);
+    if (!found) return;
     if (!settings.autoAnswer) {
-      this.hint = true;
+      this.hint = found.text;
       return;
     }
     const busy = this.answer && !this.answer.auto && (this.answer.status === 'thinking' || this.answer.status === 'streaming');
@@ -302,13 +395,38 @@ class Glint {
     clearTimeout(this.autoTimer);
     this.autoTimer = setTimeout(() => {
       this.autoAnsweredId = id;
-      this.ask('answer', { auto: true });
+      // Answer exactly the question they asked, not whatever else was said around it.
+      this.ask('answer', { auto: true, question: found.text });
     }, 350);
+  }
+
+  /** The question in the other side's latest line, if they've spoken since you last did. */
+  recentQuestion(): string {
+    for (let i = this.turns.length - 1; i >= 0 && i >= this.turns.length - 4; i--) {
+      const t = this.turns[i];
+      if (t.who === 'you' && t.final) return '';
+      if (t.who === 'them') return extractQuestion(t.text)?.text ?? '';
+    }
+    return '';
   }
 
   clearTranscript() {
     this.turns = [];
-    this.hint = false;
+    this.hint = '';
+  }
+
+  /** A new session starts from a clean slate: nothing heard or answered before it carries over
+   *  (the transcript and the last answer are what get sent to the AI as context). */
+  resetConversation() {
+    if (this.answer) ipc.askCancel();
+    clearTimeout(this.autoTimer);
+    this.turns = [];
+    this.hint = '';
+    this.answer = null;
+    this.history = [];
+    this.viewIdx = null;
+    this.lastAnswer = null;
+    this.autoAnsweredId = '';
   }
 
   // ── Answers ─────────────────────────────────────────────
@@ -328,7 +446,10 @@ class Glint {
     if (this.balance <= 0) return this.outOfTime();
     const transcript = this.transcript();
     const followup = action === 'shorter' || action === 'expand' || action === 'followups';
-    if (followup && !this.lastAnswer) return;
+    // Follow-ups (Shorter, More detail…) act on whichever answer is on screen.
+    const base =
+      this.shown?.status === 'done' ? { question: this.shown.question || this.shown.label, text: this.shown.text } : this.lastAnswer;
+    if (followup && !base) return;
     // Smart default: with nothing heard yet, the screen is the only context, so always include it.
     // Auto-answers include it too when enabled, so they see whatever is being shared in the call.
     const withScreen =
@@ -336,7 +457,7 @@ class Glint {
       ((action === 'answer' || action === 'ask') &&
         (opts.auto ? settings.screen && settings.screenAuto : settings.screen || transcript.length === 0));
     const id = ++this.seq;
-    const question = opts.question?.trim() ?? '';
+    const question = (opts.question ?? (action === 'answer' ? this.recentQuestion() : ''))?.trim() ?? '';
     this.answer = {
       id,
       action,
@@ -348,13 +469,16 @@ class Glint {
       startedAt: performance.now(),
       firstMs: 0,
     };
-    this.hint = false;
+    this.history.push(this.answer);
+    if (this.history.length > MAX_HISTORY) this.history.splice(0, this.history.length - MAX_HISTORY);
+    this.viewIdx = null;
+    this.hint = '';
     this.view = 'main';
     const history =
-      followup && this.lastAnswer
+      followup && base
         ? [
-            { role: 'user', content: this.lastAnswer.question || 'Answer the latest question.' },
-            { role: 'assistant', content: this.lastAnswer.text },
+            { role: 'user', content: base.question || 'Answer the latest question.' },
+            { role: 'assistant', content: base.text },
           ]
         : [];
     try {
@@ -476,6 +600,8 @@ class Glint {
   private onShortcut(action: string) {
     if (action === 'toggle') return this.toggleCollapsed();
     if (action === 'expand') return this.expand();
+    if (action === 'shortcuts') return (this.shortcutsOpen = !this.shortcutsOpen);
+    if (action === 'toggle_code') return (settings.codePanel = !settings.codePanel);
     if (action === 'settings') {
       this.expand();
       this.view = 'settings';

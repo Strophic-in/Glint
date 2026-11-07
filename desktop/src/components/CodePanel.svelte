@@ -4,7 +4,12 @@
   import Icon from './Icon.svelte';
   import Diagram from './Diagram.svelte';
 
-  let { blocks, width, streaming = false }: { blocks: CodeBlock[]; width: number; streaming?: boolean } = $props();
+  let {
+    blocks,
+    width,
+    streaming = false,
+    onDrag,
+  }: { blocks: CodeBlock[]; width: number; streaming?: boolean; onDrag?: (e: PointerEvent) => void } = $props();
 
   let list: HTMLDivElement | undefined = $state();
   const title = $derived(
@@ -30,11 +35,12 @@
 </script>
 
 <aside class="code-panel panel" style:width={`${width}px`}>
-  <header>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <header onpointerdown={onDrag}>
     <Icon name="code" size={14} />
-    <span class="title">{title}</span>
-    {#if blocks.length > 1}<span class="count">{blocks.length} blocks</span>{/if}
-    <span class="grow"></span>
+    <span class="title" data-drag>{title}</span>
+    {#if blocks.length > 1}<span class="count" data-drag>{blocks.length} blocks</span>{/if}
+    <span class="grow" data-drag></span>
     <button class="copy-all" onclick={() => copy(-1)} title="Copy all code">
       <Icon name={copied === -1 ? 'check' : 'copy'} size={13} />
       {copied === -1 ? 'Copied' : blocks.length > 1 ? 'Copy all' : 'Copy'}
@@ -68,10 +74,9 @@
     flex: none;
     display: flex;
     flex-direction: column;
-    max-height: calc(var(--answer-h, 420px) + 130px);
+    height: 100%;
     min-height: 0;
     overflow: hidden;
-    margin-top: 2px;
   }
   header {
     display: flex;
@@ -80,6 +85,7 @@
     padding: 9px 12px 8px;
     border-bottom: 1px solid var(--border);
     color: var(--accent);
+    cursor: default;
   }
   .title {
     font-size: 11px;

@@ -4,6 +4,7 @@
   import { settings, DEFAULT_BINDINGS, SPEECH_LANGUAGES, ANCHORS, SIZES, SIZE } from '../lib/settings.svelte';
   import { ipc, type MonitorInfo } from '../lib/ipc';
   import { accelFromEvent } from '../lib/keys';
+  import { SHORTCUTS } from '../lib/shortcuts';
   import { formatLeft } from '../lib/time';
   import Icon from './Icon.svelte';
   import Keys from './Keys.svelte';
@@ -61,16 +62,6 @@
   let mics = $state<string[]>([]);
   let outputs = $state<string[]>([]);
   let recording = $state<string | null>(null);
-
-  const SHORTCUTS: { key: string; label: string }[] = [
-    { key: 'answer', label: 'Answer now' },
-    { key: 'screen', label: 'Solve screen' },
-    { key: 'listen', label: 'Start / stop listening' },
-    { key: 'type', label: 'Type a question' },
-    { key: 'toggle', label: 'Collapse / expand Glint' },
-    { key: 'scroll_up', label: 'Scroll answer up' },
-    { key: 'scroll_down', label: 'Scroll answer down' },
-  ];
 
   onMount(() => {
     ipc.listMonitors().then((m) => (monitors = m));
@@ -211,9 +202,14 @@
       {/if}
       <label class="slider">
         <span>Opacity</span>
-        <input type="range" min="0.6" max="1" step="0.02" bind:value={settings.opacity} />
+        <input type="range" min="0.12" max="1" step="0.02" bind:value={settings.opacity} />
         <span class="val">{Math.round(settings.opacity * 100)}%</span>
       </label>
+      <label class="toggle">
+        <input type="checkbox" bind:checked={settings.solidOnHover} />
+        <span><b>Solid while I point at it</b> · see through Glint during the call, read it clearly on hover</span>
+      </label>
+      <p class="note">Also in the ⋮ menu, so you can adjust it mid-call.</p>
     </div>
 
     <div class="group">

@@ -3,11 +3,12 @@
   import Keys from './Keys.svelte';
 
   const rows = [
-    { key: 'listen', text: 'Listen to the call. Captions appear live, both sides.' },
+    { key: 'listen', text: 'Start a session. Glint hears both sides of the call and captions them live.' },
     { key: 'answer', text: 'Answer now, using what was said and your screen.' },
     { key: 'screen', text: 'Solve what is on screen: code, MCQs, errors, docs.' },
     { key: 'type', text: 'Type a question.' },
     { key: 'toggle', text: 'Collapse to a floating bubble. Tap the bubble to open.' },
+    { key: 'shortcuts', text: 'See every shortcut.' },
   ];
 </script>
 
@@ -22,7 +23,7 @@
     {/each}
   </ul>
   <p class="foot">
-    Tip: set up your session (company, role, resume) from the chip at the top left. Glint also answers questions on its own.
+    Tip: add your company, role and resume from the chip at the top left, and set see-through opacity from the ⋮ menu.
     <button onclick={() => (settings.tipsSeen = true)}>Got it</button>
   </p>
 </section>

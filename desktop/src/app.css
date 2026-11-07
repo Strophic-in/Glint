@@ -1,7 +1,7 @@
 :root {
   --opacity: 0.9;
-  /* The opacity slider maps to 82–100% alpha: text behind the overlay must never compete with it. */
-  --bg: rgba(14, 15, 20, calc(0.55 + var(--opacity) * 0.45));
+  /* The opacity slider maps to 12–100% alpha, so the minimum is genuinely close to see-through. */
+  --bg: rgba(14, 15, 20, calc(0.08 + var(--opacity) * 0.92));
   --bg-solid: #0e0f14;
   --raise: rgba(255, 255, 255, 0.05);
   --raise-2: rgba(255, 255, 255, 0.09);
@@ -16,6 +16,9 @@
   --live: #ff5a5f;
   --ok: #3ddc97;
   --them: #ffd27a;
+  /* Detected questions: highlighted in captions and shown above the answer. */
+  --question: #ffe14d;
+  --question-bg: rgba(255, 225, 77, 0.16);
   --radius: 14px;
   --font: 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
   --mono: 'Cascadia Code', 'Cascadia Mono', Consolas, monospace;
@@ -30,6 +33,7 @@ html,
 body {
   margin: 0;
   padding: 0;
+  height: 100%;
   background: transparent;
   overflow: hidden;
   font-family: var(--font);
@@ -38,6 +42,12 @@ body {
   color: var(--text);
   -webkit-font-smoothing: antialiased;
   user-select: none;
+}
+
+/* The overlay window sizes itself to its content (width: max-content on <main>), so this doesn't
+   force it to fill the viewport; the code panel window uses it to fill whatever size it's resized to. */
+#app {
+  height: 100%;
 }
 
 button {
@@ -96,6 +106,7 @@ kbd {
 
 .panel {
   background: var(--bg);
+  transition: background-color 0.18s ease;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow:

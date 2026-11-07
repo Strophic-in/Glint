@@ -1,6 +1,14 @@
 <script lang="ts">
   import { glint } from '../lib/store.svelte';
+  import { extractQuestion } from '../lib/question';
   import Icon from './Icon.svelte';
+
+  // Their line split around the question in it, so the question can be shown in yellow,
+  // live, while they're still talking.
+  function parts(text: string) {
+    const q = extractQuestion(text);
+    return q ? { before: text.slice(0, q.start), q: text.slice(q.start, q.end), after: text.slice(q.end) } : null;
+  }
 
   let el: HTMLDivElement | undefined = $state();
   const shown = $derived(glint.showTranscript ? glint.turns : glint.turns.slice(-2));
@@ -16,9 +24,12 @@
 <section class="captions">
   <div class="lines scroll" class:full={glint.showTranscript} bind:this={el}>
     {#each shown as t (t.id)}
+      {@const p = t.who === 'them' ? parts(t.text) : null}
       <p class={t.who}>
         <b>{t.who === 'them' ? 'Them' : 'You'}</b>
-        <span class:partial={!t.final}>{t.text}</span>
+        <span class:partial={!t.final}
+          >{#if p}{p.before}<mark class="q" title="Question detected">{p.q}</mark>{p.after}{:else}{t.text}{/if}</span
+        >
       </p>
     {:else}
       <p class="empty">
@@ -76,6 +87,15 @@
   }
   p.you b {
     color: var(--faint);
+  }
+  mark.q {
+    color: var(--question);
+    background: var(--question-bg);
+    font-weight: 600;
+    border-radius: 4px;
+    padding: 0 3px;
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
   }
   .partial {
     opacity: 0.75;

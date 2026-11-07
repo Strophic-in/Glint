@@ -3,6 +3,7 @@
 
   const PATHS: Record<string, string> = {
     mic: 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z M19 11a7 7 0 0 1-14 0 M12 18v3',
+    'mic-off': 'M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z M19 11a7 7 0 0 1-14 0 M12 18v3 M3 3l18 18',
     stop: 'M7 7h10v10H7z',
     pause: 'M9 6v12 M15 6v12',
     play: 'M8 5.5v13l10-6.5Z',
@@ -29,7 +30,12 @@
     sparkle: 'M12 3l1.8 5.4L19 10l-5.2 1.6L12 17l-1.8-5.4L5 10l5.2-1.6Z',
     dots: 'M12 5h.01 M12 12h.01 M12 19h.01',
     chevron: 'M6 9l6 6 6-6',
+    'chevron-left': 'M15 6l-6 6 6 6',
+    'chevron-right': 'M9 6l6 6-6 6',
     external: 'M14 4h6v6 M20 4l-9 9 M18 14v6H4V6h6',
+    drop: 'M12 3.5s6 6.4 6 10.5a6 6 0 0 1-12 0c0-4.1 6-10.5 6-10.5Z M12 20a6 6 0 0 0 6-6H6',
+    zoom: 'M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z M20 20l-4-4 M8 11h6 M11 8v6',
+    history: 'M3 12a9 9 0 1 0 3-6.7 M3 4v5h5 M12 7v5l3 2',
     eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z',
     plus: 'M12 5v14 M5 12h14',
     file: 'M14 3H6v18h12V7Z M14 3v4h4 M9 13h6 M9 17h6',

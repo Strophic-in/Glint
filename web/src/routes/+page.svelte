@@ -1,16 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import OverlayMock from '$lib/components/OverlayMock.svelte';
+  import HeroDemo from '$lib/components/HeroDemo.svelte';
+  import TryDetector from '$lib/components/TryDetector.svelte';
   import Pricing from '$lib/components/Pricing.svelte';
   import DownloadButton from '$lib/components/DownloadButton.svelte';
   import InstallHelp from '$lib/components/InstallHelp.svelte';
   import PromoBanner from '$lib/components/PromoBanner.svelte';
   import { api, type PlansResponse } from '$lib/api';
-  import { FALLBACK_PLANS } from '$lib/plans';
+  import { FALLBACK_PLANS, paidPlans, perHour } from '$lib/plans';
   import { BRAND } from '$lib/config';
-  import { formatDuration } from '$lib/format';
+  import { formatDuration, formatINR } from '$lib/format';
 
   let plans = $state<PlansResponse>(FALLBACK_PLANS);
+  const perHourFrom = $derived(Math.min(...paidPlans(plans).map(perHour)));
+  const perHourPro = $derived(perHour(paidPlans(plans).find((p) => p.id === 'pro') ?? paidPlans(plans)[0]));
 
   onMount(() => {
     api
@@ -32,12 +35,12 @@
     {
       icon: 'screen',
       title: 'Sees your screen',
-      body: 'One key sends what you are looking at — code, slides, a form — and you get the answer, not a summary.'
+      body: 'One key sends what you are looking at (code, slides, a form) and you get the answer, not a summary.'
     },
     {
       icon: 'auto',
       title: 'Answers on its own',
-      body: 'When the other side asks a question, a reply is drafted before you press anything.'
+      body: 'Glint spots the question inside everything they say, highlights it, and has the answer drafted before you press anything.'
     },
     {
       icon: 'hidden',
@@ -45,14 +48,14 @@
       body: 'The overlay stays on your display only. It is excluded from screen shares and recordings.'
     },
     {
-      icon: 'focus',
-      title: 'Never steals focus',
-      body: 'Answers appear without pulling you out of the call, the doc, or the editor you are typing in.'
+      icon: 'notes',
+      title: 'Every call becomes a study note',
+      body: 'Each session is saved on your PC with every question asked, what you said, and an AI review of how to answer better next time.'
     },
     {
-      icon: 'feather',
-      title: 'Tiny and native',
-      body: 'A 2.5 MB installer and a Rust core that uses about 6 MB of RAM. No bundled Chromium, no Node runtime.'
+      icon: 'lang',
+      title: 'Speaks Hinglish',
+      body: 'Transcribes English, Hindi and mixed Hinglish calls, and answers in the language you pick.'
     },
     {
       icon: 'clock',
@@ -67,18 +70,86 @@
   ];
 
   const shortcuts: { action: string; keys: string[][] }[] = [
-    { action: 'Show / hide', keys: [['Ctrl', '\\']] },
+    { action: 'Start a session · mic on / off', keys: [['Ctrl', 'Shift', 'L']] },
     { action: 'Answer now', keys: [['Ctrl', 'Enter']] },
     { action: 'Solve what’s on screen', keys: [['Ctrl', 'Shift', 'Enter']] },
-    { action: 'Start / stop listening', keys: [['Ctrl', 'Shift', 'L']] },
     { action: 'Type a question', keys: [['Ctrl', 'Shift', 'Space']] },
-    { action: 'Scroll the answer', keys: [['Ctrl', '↑'], ['Ctrl', '↓']] }
+    { action: 'Collapse to a bubble / expand', keys: [['Ctrl', '\\']] },
+    { action: 'Scroll the answer', keys: [['Ctrl', '↑'], ['Ctrl', '↓']] },
+    { action: 'See every shortcut', keys: [['Ctrl', 'Shift', '/']] }
+  ];
+
+  // Where Glint helps: one tab per use case, each with a realistic exchange.
+  const uses = [
+    {
+      id: 'interview',
+      label: 'Job interviews',
+      title: 'Walk in with your best answers already written.',
+      body: 'Add the company, the role and your resume. Glint answers as you, with your projects and your numbers, the moment the interviewer finishes the question.',
+      points: ['Grounded in your resume and the job', 'STAR stories for behavioural rounds', 'An AI review after every interview'],
+      them: 'Tell me about a time you disagreed with your manager.',
+      say: 'On my last team I pushed back on shipping a checkout redesign before load testing…',
+      bullets: ['Situation: big sale coming, 3× traffic expected', 'Action: proposed a 2-day test, showed the data', 'Result: caught a 40% latency spike before launch']
+    },
+    {
+      id: 'sales',
+      label: 'Sales calls',
+      title: 'Handle every objection without breaking eye contact.',
+      body: 'Tell Glint your product, pricing and proof points. When a prospect pushes back, the reply and the next question are already on your screen.',
+      points: ['Objection handling, live', 'Next best question to keep the deal moving', 'Call notes saved automatically'],
+      them: 'Honestly, your competitor is 20% cheaper.',
+      say: 'Fair. Can I ask what that 20% is measured against?',
+      bullets: ['Reframe on cost per closed deal, not seat price', 'Proof: onboarding in 2 days, not 3 weeks', 'Ask: “What would switching again in a year cost you?”']
+    },
+    {
+      id: 'meeting',
+      label: 'Meetings',
+      title: 'Never be the one who missed what was said.',
+      body: 'Live captions for both sides, an instant recap when you lose the thread, and clear answers when someone puts you on the spot.',
+      points: ['Recap of the conversation, one click', 'Answers about your agenda, not generic advice', 'Questions, decisions and follow-ups saved'],
+      them: 'Where are we on the Q3 migration timeline?',
+      say: 'We’re on track for 15 September, with one risk on the data export.',
+      bullets: ['Done: schema, staging dry run', 'Open: vendor export API rate limits', 'Ask: an owner for the fallback plan by Friday']
+    },
+    {
+      id: 'tech',
+      label: 'Technical discussions',
+      title: 'Explain the code on screen like you wrote it.',
+      body: 'Glint reads your screen: code, logs, diagrams, error messages. It explains the approach, the trade-offs and the complexity, with code in its own panel.',
+      points: ['Code and diagrams in a side panel', 'Time and space complexity, every time', 'Works with any editor, browser or doc'],
+      them: 'How would you make this endpoint handle 10× the traffic?',
+      say: 'I’d cache the read path first. It’s 90% of requests and it’s idempotent.',
+      bullets: ['Redis in front of /products, 60 s TTL', 'Move the PDF export to a queue', 'Then measure p95 before sharding anything']
+    },
+    {
+      id: 'lang',
+      label: 'Calls in English',
+      title: 'Think in Hindi, speak in polished English.',
+      body: 'For calls in a second language, Glint understands Hinglish and hands you a clear, natural sentence to say, so you sound like yourself on a good day.',
+      points: ['Hinglish and Hindi transcription', 'Clear, natural phrasing to read out', 'Answers in the language you choose'],
+      them: 'Could you walk us through your notice period?',
+      say: 'My notice period is 60 days, and I can ask for an early release if needed.',
+      bullets: ['Mention the exact date you could join', 'Offer to help with the handover', 'Keep it short, then pause']
+    }
+  ];
+  let useId = $state('interview');
+  const use = $derived(uses.find((u) => u.id === useId) ?? uses[0]);
+
+  // Glint vs. the usual subscription copilot. Only claims about Glint we can stand behind.
+  const compare: { what: string; glint: string; others: string }[] = [
+    { what: 'How you pay', glint: 'Hour packs from ₹499 in rupees, billed per second while live', others: 'A monthly subscription in dollars, used or not' },
+    { what: 'Who said what', glint: 'Both sides captioned and labelled separately', others: 'Often one mixed stream' },
+    { what: 'Your focus', glint: 'Never takes focus from the app you are typing in', others: 'Can pull focus when you use it' },
+    { what: 'After the call', glint: 'A saved session note with an AI review', others: 'Gone when you close it' },
+    { what: 'Download', glint: 'A 5 MB installer, native Rust core', others: 'Often 100+ MB with a bundled browser' },
+    { what: 'Forgot to stop?', glint: 'Auto-pauses after 5 minutes of silence', others: 'Keeps running' },
+    { what: 'Your data', glint: 'No audio or transcripts stored on our servers', others: 'Check their policy' }
   ];
 
   const faqs = $derived([
     {
       q: 'What counts as usage?',
-      a: `Time counts only while ${BRAND} is live — listening to your call. It is billed per second and pauses on its own after 5 minutes of silence, so a forgotten session never drains your hours. A quick question outside a live session uses 30 seconds.`
+      a: `Time counts only while ${BRAND} is live, listening to your call. It is billed per second and pauses on its own after 5 minutes of silence, so a forgotten session never drains your hours. A quick question outside a live session uses 30 seconds.`
     },
     {
       q: 'Do hours expire?',
@@ -86,11 +157,11 @@
     },
     {
       q: 'Is my audio stored?',
-      a: 'No. Audio is streamed to the speech model and discarded. Transcripts live only on your PC for the session. We keep your usage time and payment records — nothing else.'
+      a: 'No. Audio is streamed to the speech model and discarded. Transcripts live only on your PC for the session. We keep your usage time and payment records, nothing else.'
     },
     {
       q: 'Which Windows versions are supported?',
-      a: 'Windows 10 version 2004 or newer, and Windows 11. The installer is about 2.5 MB and uses Microsoft Edge WebView2, which is already on most PCs.'
+      a: 'Windows 10 version 2004 or newer, and Windows 11. The installer is under 5 MB and uses Microsoft Edge WebView2, which is already on most PCs.'
     },
     {
       q: 'Why does my browser or Windows warn me about the installer?',
@@ -98,7 +169,23 @@
     },
     {
       q: 'Does it work with Zoom, Meet and Teams?',
-      a: `Yes. ${BRAND} listens to your system audio, so it works with any app that plays sound — desktop clients and browser calls alike.`
+      a: `Yes. ${BRAND} listens to your system audio, so it works with any app that plays sound: desktop clients and browser calls alike.`
+    },
+    {
+      q: 'What do I get after a session?',
+      a: `A note saved on your PC (Documents\\Glint Sessions) with everything said, every answer, any screenshots used, and an AI review: the questions you were asked, stronger ways to answer them, and what to prepare next. The file stays on your computer; we never store it.`
+    },
+    {
+      q: 'I use headphones. Will it still hear the other person?',
+      a: `Yes. In Settings → Audio, pick the headphones as the system audio device. ${BRAND} also tells you within a minute if it can't hear the other side of the call.`
+    },
+    {
+      q: 'Which languages does it understand?',
+      a: 'English, Hindi and mixed Hinglish, plus Spanish, French, German and Portuguese. Answers can be in any of these, and in Arabic or Japanese too.'
+    },
+    {
+      q: 'Can I get a refund?',
+      a: 'Try it free on a real or practice call before you buy. After buying, you can get a full refund within 7 days if you have used less than 10% of the hours. Hours never renew or charge you automatically.'
     },
     {
       q: 'Can people see it when I share my screen?',
@@ -108,42 +195,80 @@
 </script>
 
 <svelte:head>
-  <title>{BRAND} — Answers before they finish asking</title>
+  <title>{BRAND} · Answers before they finish asking</title>
   <meta
     name="description"
     content="{BRAND} is a real-time AI copilot for Windows. It hears both sides of your call, sees your screen, and streams answers into a private overlay in under a second."
   />
 </svelte:head>
 
-<!-- Hero -->
-<section class="hero">
-  <div class="glow" aria-hidden="true"></div>
-  <div class="container hero-inner">
-    <span class="badge badge-accent pill-badge">
-      <span class="dot"></span> Real-time AI copilot for Windows
-    </span>
-    <h1>Answers before they<br class="br" /> finish asking.</h1>
+<!-- Hero: the product running. Scroll plays a sample interview (see HeroDemo). -->
+<HeroDemo>
+  {#snippet copy()}
+    <span class="kicker">Real-time AI copilot for Windows</span>
+    <h1>Answers before they finish asking.</h1>
     <p class="lede">
-      {BRAND} listens to both sides of your call, sees your screen, and streams the right words into a
-      private overlay — in under a second. For calls, meetings, sales and prep.
+      {BRAND} hears both sides of your call, catches the question the moment it's asked and puts the answer in a
+      private overlay that screen shares can't see. Interviews, sales calls, meetings. Pay by the hour, in rupees.
     </p>
-    <div class="ctas">
+    <div class="hctas">
       <DownloadButton />
-      <a class="btn btn-lg" href="/login?next=/dashboard">Start free — {formatDuration(plans.trial_seconds)}</a>
+      <a class="btn btn-lg" href="/login?next=/dashboard">Start free · {formatDuration(plans.trial_seconds)}</a>
     </div>
-    <p class="fine muted">Windows 10 2004+ / 11 · ~2.5 MB · No card needed</p>
+    <p class="fine muted hero-fine">Windows 10 2004+ / 11 · ~5 MB · No card needed</p>
+  {/snippet}
+</HeroDemo>
+
+<section class="after-hero">
+  <div class="container">
     <InstallHelp />
+    <dl class="proof">
+      <div><dt>&lt; 1 s</dt><dd>to the first word</dd></div>
+      <div><dt>0</dt><dd>apps it takes focus from</dd></div>
+      <div><dt>{formatINR(perHourFrom)}/hr</dt><dd>lowest price, no subscription</dd></div>
+      <div><dt>0 bytes</dt><dd>of your audio stored</dd></div>
+    </dl>
+    <div class="works">
+      <span class="muted">Works with</span>
+      <span>Zoom</span><span>Google Meet</span><span>Microsoft Teams</span><span>Webex</span><span>Slack huddles</span><span
+        >any app with sound</span
+      >
+    </div>
   </div>
+</section>
 
-  <div class="container mock-wrap">
-    <OverlayMock />
-  </div>
-
-  <div class="container works">
-    <span class="muted">Works with</span>
-    <span>Zoom</span><span>Google Meet</span><span>Microsoft Teams</span><span>Webex</span><span>Slack huddles</span><span
-      >any app with sound</span
-    >
+<!-- Use cases -->
+<section id="use-cases" class="section">
+  <div class="container">
+    <div class="head">
+      <span class="eyebrow">Where it helps</span>
+      <h2>One copilot for every call that matters.</h2>
+      <p class="muted">Pick a session type and {BRAND} changes how it answers: as a candidate, a seller, a teammate or an engineer.</p>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Use cases">
+      {#each uses as u (u.id)}
+        <button role="tab" aria-selected={useId === u.id} class:on={useId === u.id} onclick={() => (useId = u.id)}>{u.label}</button>
+      {/each}
+    </div>
+    <div class="use card" role="tabpanel">
+      <div class="use-copy">
+        <h3>{use.title}</h3>
+        <p class="muted">{use.body}</p>
+        <ul class="ticks">
+          {#each use.points as pt (pt)}<li>{pt}</li>{/each}
+        </ul>
+      </div>
+      <div class="use-demo" aria-label="Example">
+        <div class="bubble them"><span class="who">Them</span>{use.them}</div>
+        <div class="reply">
+          <span class="who accent">Say</span>
+          <p class="say">{use.say}</p>
+          <ul>
+            {#each use.bullets as b (b)}<li>{b}</li>{/each}
+          </ul>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -180,6 +305,14 @@
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
                 ><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3" /><circle cx="12" cy="12" r="2.5" /></svg
               >
+            {:else if f.icon === 'notes'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                ><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z" /><path d="M14 3v5h5M9 13h6M9 17h4" /></svg
+              >
+            {:else if f.icon === 'lang'}
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"
+                ><path d="M4 5h8M8 3v2M6 5c0 4 3 7 6 8M10 5c0 3-2 6-6 8" /><path d="m13 21 4-9 4 9M14.5 18h5" /></svg
+              >
             {:else if f.icon === 'feather'}
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"
                 ><path d="M20.2 3.8a6 6 0 0 0-8.5 0L5 10.5V19h8.5l6.7-6.7a6 6 0 0 0 0-8.5Z" /><path d="M16 8 2 22M17.5 15H9" /></svg
@@ -202,28 +335,54 @@
   </div>
 </section>
 
+<!-- Comparison -->
+<section id="compare" class="section">
+  <div class="container">
+    <div class="head">
+      <span class="eyebrow">Why people switch</span>
+      <h2>Built for how you actually use a copilot.</h2>
+      <p class="muted">You have a few important calls a month, not a call every hour. So you pay for those hours, not for a subscription.</p>
+    </div>
+    <div class="compare card">
+      <div class="crow chead">
+        <span></span><span class="cg">{BRAND}</span><span class="co">Typical subscription copilot</span>
+      </div>
+      {#each compare as c (c.what)}
+        <div class="crow">
+          <span class="cw">{c.what}</span>
+          <span class="cg"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 5 5 9-10" /></svg>{c.glint}</span>
+          <span class="co">{c.others}</span>
+        </div>
+      {/each}
+    </div>
+    <p class="cost muted">
+      One interview is about an hour. On Pro that is {formatINR(perHourPro)}, less than a single coaching session.
+    </p>
+  </div>
+</section>
+
 <!-- How it works -->
 <section class="section">
   <div class="container">
     <div class="head">
       <span class="eyebrow">How it works</span>
-      <h2>Three keys. That's the whole manual.</h2>
+      <h2>Set up once. Then it just works.</h2>
     </div>
     <ol class="steps">
       <li class="card">
         <span class="num">1</span>
         <h3>Install & sign in</h3>
-        <p class="muted">Download the 2.5 MB installer and sign in with Google. You get 20 free minutes.</p>
+        <p class="muted">Download the 5 MB installer and sign in with Google. You get 20 free minutes.</p>
       </li>
       <li class="card">
         <span class="num">2</span>
-        <h3>Go live</h3>
-        <p class="muted">Join your call and press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd>. Live captions appear for both sides.</p>
+        <h3>Start a session</h3>
+        <p class="muted">Add your company, role and resume. Join the call and press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd>. Captions appear for both sides.</p>
       </li>
       <li class="card">
         <span class="num">3</span>
         <h3>Get the answer</h3>
-        <p class="muted">Press <kbd>Ctrl</kbd> <kbd>Enter</kbd> — or let auto-answer handle questions as they land.</p>
+        <p class="muted">Questions are answered as they land, or press <kbd>Ctrl</kbd> <kbd>Enter</kbd>. End the session and get a review to learn from.</p>
       </li>
     </ol>
   </div>
@@ -299,23 +458,19 @@
     <div class="final card">
       <div class="glow small" aria-hidden="true"></div>
       <h2>Your next call, with backup.</h2>
-      <p class="muted">Install in under a minute. The first 20 minutes are on us.</p>
+      <p class="muted">Try the detector, then install in under a minute. The first 20 minutes are on us.</p>
+      <div class="try-wrap"><TryDetector /></div>
       <div class="ctas">
         <DownloadButton />
         <a class="btn btn-lg" href="/#pricing">See pricing</a>
       </div>
-      <p class="fine muted">Windows 10 2004+ / 11 · ~2.5 MB · Signed in with Google</p>
+      <p class="fine muted">Windows 10 2004+ / 11 · ~5 MB · Signed in with Google</p>
       <InstallHelp />
     </div>
   </div>
 </section>
 
 <style>
-  .hero {
-    position: relative;
-    padding: 72px 0 24px;
-    overflow: hidden;
-  }
   .glow {
     position: absolute;
     left: 50%;
@@ -326,34 +481,36 @@
     background: radial-gradient(closest-side, rgba(245, 184, 61, 0.2), rgba(245, 184, 61, 0.05) 55%, transparent 75%);
     pointer-events: none;
   }
-  .hero-inner {
-    position: relative;
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-  .pill-badge {
-    height: 30px;
-    padding: 0 14px;
+  /* Hero copy (rendered inside HeroDemo's stage, styled here). Lead-anchored, not centred. */
+  .kicker {
+    display: inline-block;
     font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: 0.01em;
   }
   h1 {
-    margin-top: 22px;
-    font-size: clamp(38px, 8.4vw, 76px);
+    margin-top: 16px;
+    font-size: clamp(34px, 5.2vw, 68px);
     font-weight: 700;
-    letter-spacing: -0.045em;
+    letter-spacing: -0.04em;
     line-height: 1.02;
-    background: linear-gradient(180deg, #fff 30%, #c9cbd1);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: #f4f4f6;
+    text-wrap: balance;
   }
   .lede {
-    margin-top: 22px;
-    max-width: 640px;
-    font-size: clamp(16px, 2.2vw, 19px);
+    margin-top: 20px;
+    max-width: 34rem;
+    font-size: clamp(16px, 1.4vw, 18px);
+    line-height: 1.6;
     color: #b9bdc6;
+    text-wrap: pretty;
+  }
+  .hctas {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-top: 28px;
   }
   .ctas {
     display: flex;
@@ -366,9 +523,25 @@
     margin-top: 14px;
     font-size: 13px;
   }
-  .mock-wrap {
+  @media (max-width: 899px) {
+    h1 {
+      font-size: clamp(30px, 8.6vw, 40px);
+    }
+    .lede,
+    .hero-fine {
+      display: none;
+    }
+    .hctas {
+      margin-top: 16px;
+    }
+  }
+  .after-hero {
     position: relative;
-    margin-top: 56px;
+    padding: 40px 0 0;
+    text-align: center;
+  }
+  .after-hero .proof {
+    margin-inline: auto;
   }
   .works {
     display: flex;
@@ -381,6 +554,231 @@
     font-weight: 500;
   }
 
+  .proof {
+    margin: 36px 0 0;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    width: 100%;
+    max-width: 760px;
+  }
+  @media (min-width: 720px) {
+    .proof {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+  .proof div {
+    padding: 14px 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: rgba(255, 255, 255, 0.02);
+  }
+  .proof dt {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text);
+  }
+  .proof dd {
+    margin: 2px 0 0;
+    font-size: 12.5px;
+    color: var(--muted);
+  }
+  .tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    margin-bottom: 14px;
+    scrollbar-width: none;
+    justify-content: flex-start;
+  }
+  @media (min-width: 900px) {
+    .tabs {
+      justify-content: center;
+    }
+  }
+  .tabs button {
+    flex: none;
+    height: 38px;
+    padding: 0 16px;
+    border-radius: var(--radius-pill);
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 14px;
+    font-weight: 550;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+  }
+  .tabs button:hover {
+    color: var(--text);
+    border-color: var(--border-strong);
+  }
+  .tabs button.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--accent-ink);
+  }
+  .use {
+    display: grid;
+    gap: 28px;
+    padding: 26px 22px;
+  }
+  @media (min-width: 900px) {
+    .use {
+      grid-template-columns: 1fr 1.1fr;
+      padding: 40px;
+      align-items: center;
+    }
+  }
+  .use h3 {
+    font-size: clamp(22px, 3vw, 28px);
+    letter-spacing: -0.025em;
+    line-height: 1.2;
+  }
+  .use-copy > p {
+    margin-top: 12px;
+    font-size: 16px;
+  }
+  .ticks {
+    list-style: none;
+    padding: 0;
+    margin: 18px 0 0;
+    display: grid;
+    gap: 9px;
+  }
+  .ticks li {
+    position: relative;
+    padding-left: 26px;
+    font-size: 15px;
+  }
+  .ticks li::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 4px;
+    width: 12px;
+    height: 7px;
+    border-left: 2px solid var(--accent);
+    border-bottom: 2px solid var(--accent);
+    transform: rotate(-45deg);
+  }
+  .use-demo {
+    display: grid;
+    gap: 10px;
+    padding: 18px;
+    border-radius: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    min-width: 0;
+  }
+  .who {
+    display: block;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--faint);
+    margin-bottom: 4px;
+  }
+  .who.accent {
+    color: var(--accent);
+  }
+  .bubble.them {
+    padding: 12px 14px;
+    border-radius: 12px;
+    background: var(--surface-2);
+    font-size: 15px;
+  }
+  .reply {
+    padding: 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(245, 184, 61, 0.25);
+    background: var(--accent-soft);
+  }
+  .say {
+    font-size: 16px;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+  .reply ul {
+    margin: 10px 0 0;
+    padding-left: 18px;
+    display: grid;
+    gap: 4px;
+    font-size: 14px;
+    color: #cfd2d8;
+  }
+  .compare {
+    padding: 6px 0;
+    overflow: hidden;
+  }
+  .crow {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 4px;
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    font-size: 14.5px;
+  }
+  .crow:last-child {
+    border-bottom: none;
+  }
+  @media (min-width: 760px) {
+    .crow {
+      grid-template-columns: 0.7fr 1.4fr 1.2fr;
+      gap: 18px;
+      align-items: center;
+    }
+  }
+  .chead {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+  }
+  @media (max-width: 759px) {
+    .chead {
+      display: none;
+    }
+    .co::before {
+      content: 'Others: ';
+      color: var(--faint);
+    }
+  }
+  .chead .cg {
+    color: var(--accent);
+  }
+  .cw {
+    font-weight: 600;
+  }
+  .cg {
+    display: flex;
+    gap: 8px;
+    align-items: flex-start;
+    color: var(--text);
+  }
+  .cg svg {
+    flex: none;
+    width: 16px;
+    height: 16px;
+    margin-top: 3px;
+    fill: none;
+    stroke: var(--ok);
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+  .co {
+    color: var(--muted);
+  }
+  .cost {
+    margin-top: 18px;
+    text-align: center;
+    font-size: 15px;
+  }
   .section {
     padding: 96px 0 0;
     scroll-margin-top: 64px;
@@ -601,6 +999,12 @@
     text-align: center;
     padding: 64px 20px;
   }
+  .try-wrap {
+    width: 100%;
+    max-width: 640px;
+    margin: 28px auto 0;
+    position: relative;
+  }
   .glow.small {
     top: auto;
     bottom: -520px;
@@ -624,9 +1028,6 @@
   }
 
   @media (max-width: 520px) {
-    .br {
-      display: none;
-    }
     .ctas {
       width: 100%;
       flex-direction: column;
@@ -634,8 +1035,8 @@
     .ctas :global(.btn) {
       width: 100%;
     }
-    .hero {
-      padding-top: 48px;
+    .hctas :global(.btn) {
+      flex: 1 1 auto;
     }
     .section {
       padding-top: 72px;

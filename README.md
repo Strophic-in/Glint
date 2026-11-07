@@ -22,6 +22,8 @@ into a private overlay that never takes focus and doesn't show up in screen shar
 | `Ctrl+\` | Collapse to the floating bubble / expand |
 | `Ctrl+Enter` | Answer now (conversation + screen) |
 | `Ctrl+Shift+Enter` | Solve what's on screen |
-| `Ctrl+Shift+L` | Start / stop listening |
+| `Ctrl+Shift+L` | Start a session / mic on-off |
 | `Ctrl+Shift+Space` | Type a question |
 | `Ctrl+↑ / ↓` | Scroll the answer (only while one is shown) |
+| `Ctrl+Alt+C` | Show / hide the code panel |
+| `Ctrl+Shift+/` | Show every shortcut |

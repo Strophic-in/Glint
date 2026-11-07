@@ -17,6 +17,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 pub const OVERLAY: &str = "overlay";
+pub const CODE: &str = "code";
 
 /// Developer escape hatch (screenshots, demos): GLINT_ALLOW_CAPTURE=1 keeps the overlay capturable.
 pub fn set_protected(w: &WebviewWindow, on: bool) {
@@ -26,6 +27,10 @@ pub fn set_protected(w: &WebviewWindow, on: bool) {
 
 pub fn overlay(app: &AppHandle) -> Option<WebviewWindow> {
     app.get_webview_window(OVERLAY)
+}
+
+pub fn code_window(app: &AppHandle) -> Option<WebviewWindow> {
+    app.get_webview_window(CODE)
 }
 
 pub fn hwnd(w: &WebviewWindow) -> Option<HWND> {
@@ -133,11 +138,14 @@ pub fn set_bounds(w: &WebviewWindow, x: i32, y: i32, width: i32, height: i32) {
 /// (which draws an outline that screen sharing can see). While the button is held, the UI gets
 /// "resize-drag" events with the cursor's offset from where it was pressed, in physical pixels;
 /// it turns that into a new width/height and the window follows its content.
-pub fn track_resize(app: &AppHandle) {
+///
+/// Emitted on `w` specifically (not broadcast app-wide): with two independently resizable windows
+/// (overlay + code panel), a global emit would make both react to whichever one is being dragged.
+pub fn track_resize(w: &WebviewWindow) {
     if DRAGGING.swap(true, Ordering::SeqCst) {
         return;
     }
-    let app = app.clone();
+    let w = w.clone();
     std::thread::spawn(move || {
         unsafe {
             let mut start = POINT::default();
@@ -149,13 +157,13 @@ pub fn track_resize(app: &AppHandle) {
                     if GetCursorPos(&mut p).is_ok() {
                         let d = (p.x - start.x, p.y - start.y);
                         if d != last {
-                            let _ = app.emit("resize-drag", serde_json::json!({ "dx": d.0, "dy": d.1, "done": false }));
+                            let _ = w.emit("resize-drag", serde_json::json!({ "dx": d.0, "dy": d.1, "done": false }));
                             last = d;
                         }
                     }
                     std::thread::sleep(std::time::Duration::from_millis(8));
                 }
-                let _ = app.emit("resize-drag", serde_json::json!({ "dx": last.0, "dy": last.1, "done": true }));
+                let _ = w.emit("resize-drag", serde_json::json!({ "dx": last.0, "dy": last.1, "done": true }));
             }
         }
         DRAGGING.store(false, Ordering::SeqCst);

@@ -2,29 +2,26 @@
   import { onMount } from 'svelte';
   import { glint } from './lib/store.svelte';
   import { settings, persistSettings, SIZE } from './lib/settings.svelte';
-  import { ipc, on } from './lib/ipc';
+  import { ipc, on, emit } from './lib/ipc';
   import { renderAnswer, type CodeBlock } from './lib/markdown';
   import Bar from './components/Bar.svelte';
   import Bubble from './components/Bubble.svelte';
   import SignIn from './components/SignIn.svelte';
   import Captions from './components/Captions.svelte';
   import Answer from './components/Answer.svelte';
-  import CodePanel from './components/CodePanel.svelte';
   import Ask from './components/Ask.svelte';
   import Notice from './components/Notice.svelte';
   import Settings from './components/Settings.svelte';
   import Session from './components/Session.svelte';
   import Menu from './components/Menu.svelte';
+  import ShortcutsOverlay from './components/ShortcutsOverlay.svelte';
   import Tips from './components/Tips.svelte';
   import Keys from './components/Keys.svelte';
   import UpdateBanner from './components/UpdateBanner.svelte';
   import { updates } from './lib/update.svelte';
   import { recorder } from './lib/recorder.svelte';
 
-  const GAP = 8;
   let root: HTMLElement | undefined = $state();
-  let col: HTMLElement | undefined = $state();
-  let codePanel: CodePanel | undefined = $state();
 
   const ready = $derived(glint.phase === 'ready');
   const showCaptions = $derived(glint.listen !== 'off' || glint.turns.length > 0);
@@ -34,37 +31,46 @@
 
   // Corner grip: live size while dragging, saved to settings when the button is released.
   let dragSize = $state<{ w: number; h: number } | null>(null);
-  const width = $derived(dragSize?.w ?? settings.width);
+  // Clamped: a width saved under an older, smaller minimum would cut off the bar's buttons.
+  const width = $derived(dragSize?.w ?? Math.max(SIZE.minWidth, settings.width));
   const answerHeight = $derived(dragSize?.h ?? settings.answerHeight);
 
-  // The code panel sits to the left of the main column, sized from it, and only if it fits on the
-  // screen (screen size is in device-independent px, so divide by the zoom). Otherwise code stays inline.
-  const codeWidth = $derived.by(() => {
-    const room = Math.floor(window.screen.availWidth / settings.zoom) - width - GAP - 24;
-    return Math.min(Math.max(360, Math.round(width * 0.72)), width >= 960 ? 900 : 640, room);
-  });
-  const canSplit = $derived(settings.codePanel && codeWidth >= 300 && glint.view === 'main' && !glint.collapsed);
+  // The code panel lives in its own window now (see CodeWindow.svelte), so splitting code out of
+  // the answer only depends on whether that panel is enabled, not on whether it fits beside us.
+  const splitCode = $derived(settings.codePanel && glint.view === 'main' && !glint.collapsed);
 
   // The answer is rendered once per frame while it streams, shared by the text and the code panel.
   let rendered = $state<{ html: string; blocks: CodeBlock[] }>({ html: '', blocks: [] });
   let raf = 0;
   $effect(() => {
-    const text = glint.answer?.text ?? '';
-    const split = canSplit;
+    const text = glint.shown?.text ?? '';
+    const split = splitCode;
     const side = settings.codeSide;
     cancelAnimationFrame(raf);
     raf = requestAnimationFrame(() => (rendered = renderAnswer(text, split, side)));
   });
-  const codeOpen = $derived(ready && canSplit && !!glint.answer && rendered.blocks.length > 0);
+  const codeVisible = $derived(glint.visible && ready && splitCode && rendered.blocks.length > 0);
+
+  // Broadcast the code panel window's content and visibility; it has no access to this window's
+  // in-memory state, only to events (see CodeWindow.svelte).
+  $effect(() => {
+    emit('code-content', { blocks: rendered.blocks, streaming: glint.shown?.status === 'streaming' });
+  });
+  $effect(() => {
+    emit('code-visible', codeVisible);
+  });
+
+  // Only what the code window renders with; the full settings (resume text included) would be
+  // serialized across windows on every keystroke.
+  const codeSettings = () => ({ opacity: settings.opacity, zoom: settings.zoom, protected: settings.protected });
 
   // Fit the native window to the content (bar or bubble) so transparent areas never block clicks.
   // The webview is zoomed, so CSS pixels × zoom = window pixels.
   function fit() {
     if (!root) return;
     const r = root.getBoundingClientRect();
-    const left = codeOpen && col && settings.codeSide === 'left' ? col.offsetLeft : 0;
     const z = settings.zoom;
-    ipc.resize(Math.ceil(r.width * z), Math.ceil(r.height * z), left * z);
+    ipc.resize(Math.ceil(r.width * z), Math.ceil(r.height * z));
   }
 
   // Which edge is being dragged: the right edge changes the width, the bottom edge the answer
@@ -90,6 +96,15 @@
     glint.startSession = async () => {
       glint.view = 'main';
       await recorder.start();
+      // Answers are only as specific as what Glint knows: nudge (once per session) when an
+      // interview starts with no resume or company, the case where answers sound most generic.
+      const noResume = !settings.docs.some((d) => d.kind === 'resume');
+      if (recorder.active && settings.mode === 'interview' && (noResume || !settings.session.company.trim())) {
+        glint.notify(
+          { kind: 'info', message: noResume ? 'Add your resume so answers use your real projects and numbers.' : 'Add the company and role so answers fit this interview.', action: 'setup' },
+          12000,
+        );
+      }
     };
     // Saved placement (monitor + spot), once the window has its real size.
     const placeTimer = setTimeout(() => ipc.placeWindow(settings.placeMonitor, settings.placeAnchor), 400);
@@ -103,6 +118,13 @@
     });
     const ro = new ResizeObserver(fit);
     if (root) ro.observe(root);
+    // The code window's own mount can finish after our first broadcast (separate webview, racing
+    // startup); it asks for a fresh sync once it's actually listening instead of silently missing it.
+    const stopCodeReady = on('code-window-ready', () => {
+      emit('settings-sync', codeSettings());
+      emit('code-content', { blocks: rendered.blocks, streaming: glint.shown?.status === 'streaming' });
+      emit('code-visible', codeVisible);
+    });
     // Rust follows the mouse during a corner drag and reports the offset from the press in physical
     // pixels; devicePixelRatio already includes both the display scale and the zoom. Settings keep
     // the size from before the drag until the button is released.
@@ -136,19 +158,28 @@
       clearTimeout(placeTimer);
       stop.then((f) => f());
       stopQuit.then((f) => f());
+      stopCodeReady.then((f) => f());
       clearTimeout(blurTimer);
       window.removeEventListener('blur', onBlur);
     };
   });
 
-  // Persist every settings change (deep-tracked via JSON).
+  // Persist every settings change (deep-tracked via JSON), and hand the code panel window the
+  // slice it needs to render itself (opacity, zoom, protection) — it has its own settings module
+  // instance in its own webview, so it can't just read this one.
   $effect(() => {
     JSON.stringify(settings);
     persistSettings();
+    emit('settings-sync', codeSettings());
   });
 
+  // A see-through overlay turns solid while the mouse is over it (if enabled), so you can glance
+  // past it during a call and still read it comfortably the moment you point at it.
+  let hovering = $state(false);
   $effect(() => {
-    document.documentElement.style.setProperty('--opacity', String(settings.opacity));
+    // Not while the menu or Settings is open: that's where the slider is, and it needs a live preview.
+    const solid = hovering && settings.solidOnHover && !glint.menuOpen && glint.view !== 'settings';
+    document.documentElement.style.setProperty('--opacity', String(solid ? 1 : settings.opacity));
   });
 
   $effect(() => {
@@ -179,7 +210,8 @@
 
   function onKeydown(e: KeyboardEvent) {
     if (e.key !== 'Escape') return;
-    if (glint.menuOpen) glint.menuOpen = false;
+    if (glint.shortcutsOpen) glint.shortcutsOpen = false;
+    else if (glint.menuOpen) glint.menuOpen = false;
     else if (glint.view === 'session') glint.view = 'main';
     else if (glint.view === 'main') {
       if (glint.typing) glint.stopTyping();
@@ -190,22 +222,20 @@
 
 <svelte:window onkeydown={onKeydown} />
 
-<main bind:this={root} class:collapsed={glint.collapsed} style:--answer-h={`${answerHeight}px`}>
+<main
+  bind:this={root}
+  class:collapsed={glint.collapsed}
+  style:--answer-h={`${answerHeight}px`}
+  onpointerenter={() => (hovering = true)}
+  onpointerleave={() => (hovering = false)}
+>
   {#if glint.collapsed}
     <Bubble />
   {:else}
-    {#snippet code()}
-      <CodePanel
-        bind:this={codePanel}
-        blocks={rendered.blocks}
-        width={codeWidth}
-        streaming={glint.answer?.status === 'streaming'}
-      />
-    {/snippet}
-    {#if codeOpen && settings.codeSide === 'left'}{@render code()}{/if}
-    <div class="col" bind:this={col} style:width={`${width}px`}>
+    <div class="col" style:width={`${width}px`}>
       <Bar />
       {#if glint.menuOpen && ready}<Menu />{/if}
+      {#if glint.shortcutsOpen}<ShortcutsOverlay />{/if}
       {#if ready && glint.view === 'main' && updates.showBanner}<UpdateBanner />{/if}
 
       {#if !ready}
@@ -219,11 +249,12 @@
           {#if showTips}<Tips />{/if}
           {#if showCaptions}<Captions />{/if}
           {#if glint.hint && !glint.answer}
-            <button class="hint" onclick={() => glint.ask('answer')}>
-              Question detected. Answer it now <Keys accel={settings.bindings.answer} />
+            <button class="hint" onclick={() => glint.ask('answer', { question: glint.hint })}>
+              <span class="hint-q">{glint.hint}</span>
+              <span class="hint-cta">Answer <Keys accel={settings.bindings.answer} /></span>
             </button>
           {/if}
-          <Answer html={rendered.html} onCodeRef={(i) => codePanel?.reveal(i)} />
+          <Answer html={rendered.html} onCodeRef={(i) => emit('code-reveal', i)} />
           {#if showAsk}<Ask />{/if}
         </div>
       {/if}
@@ -246,7 +277,6 @@
         title="Drag to resize · double-click to reset"
       ></div>
     </div>
-    {#if codeOpen && settings.codeSide === 'right'}{@render code()}{/if}
   {/if}
 </main>
 
@@ -270,6 +300,18 @@
   .stack {
     margin-top: 6px;
     overflow: hidden;
+  }
+  .hint-q {
+    flex: 1;
+    min-width: 0;
+    text-align: left;
+    color: var(--question);
+  }
+  .hint-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex: none;
   }
   .hint {
     width: 100%;

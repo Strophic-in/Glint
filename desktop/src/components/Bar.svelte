@@ -30,10 +30,32 @@
   const modeIcon = $derived(MODES.find((m) => m.id === settings.mode)?.icon ?? 'sparkle');
   const keys = (a: string) => keyParts(settings.bindings[a] ?? '').join('+');
 
-  function clock(ms: number) {
-    const s = Math.max(0, Math.floor(ms / 1000));
-    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  // Responsive bar: measure instead of guessing breakpoints. Try the full bar, then drop labels
+  // level by level (c1 → c3) until nothing overflows. Classes are set directly so the check is
+  // synchronous (no paint in between, so no flicker).
+  let bar: HTMLElement | undefined = $state();
+  function fitBar() {
+    if (!bar) return;
+    for (let lvl = 0; lvl <= 3; lvl++) {
+      bar.classList.toggle('c1', lvl >= 1);
+      bar.classList.toggle('c2', lvl >= 2);
+      bar.classList.toggle('c3', lvl >= 3);
+      if (bar.scrollWidth <= bar.clientWidth + 1) break;
+    }
   }
+  $effect(() => {
+    if (!bar) return;
+    const ro = new ResizeObserver(fitBar);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  });
+  // Content changes (session start/end, mic state, End? prompt, the ticking balance) change the
+  // bar's natural width without changing its box, so refit on those too.
+  $effect(() => {
+    void [recorder.active, recorder.finishing, live, glint.listen, confirmEnd, glint.phase, settings.mode];
+    void [sessionLabel(), settings.bindings.answer, formatLeft(glint.balanceNow(now))];
+    fitBar();
+  });
 
 
   // Drag the overlay from the bar's empty areas (not its buttons). Glint moves the window itself so
@@ -79,7 +101,7 @@
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<header class="bar panel" onpointerdown={dragFromBar}>
+<header class="bar panel" bind:this={bar} onpointerdown={dragFromBar}>
   <button
     class="logo"
     onpointerdown={handleDown}
@@ -112,47 +134,56 @@
           class:paused={!live}
           onclick={askEnd}
           disabled={recorder.finishing}
-          title={live ? 'Session recording. Click to end it.' : 'Session recording, listening paused. Click to end it.'}
+          title={live ? 'Session recording. Click to end it.' : 'Session recording, mic off. Click to end it.'}
         >
           <span class="dot"></span>
-          {#if recorder.finishing}Saving…{:else}{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}{#if !live}<span class="state">paused</span>{/if}<span class="end">End</span>{/if}
+          {#if recorder.finishing}Saving…{:else}{Math.floor(secs / 60)}:{String(secs % 60).padStart(2, '0')}{#if !live}<span class="state">mic off</span>{/if}<span class="end">End</span>{/if}
         </button>
       {/if}
     {/if}
 
-    <button
-      class="btn listen"
-      class:live
-      class:connecting={glint.listen === 'connecting' || glint.listen === 'reconnecting'}
-      onclick={() => glint.toggleListen()}
-      title="{live ? (recorder.active ? 'Pause listening (the session keeps recording)' : 'Stop listening') : recorder.active ? 'Resume listening' : 'Start a session: Glint records it and starts listening'} ({keys('listen')})"
-    >
-      {#if live}
-        <span class="meters" aria-hidden="true">
-          <i style:transform="scaleY({0.15 + glint.levels.them * 0.85})" class="them"></i>
-          <i style:transform="scaleY({0.15 + glint.levels.you * 0.85})"></i>
-        </span>
-        <!-- In a session the REC timer is the one clock; this button just pauses. -->
-        {#if !recorder.active}<span class="time">{glint.listen === 'reconnecting' ? '…' : clock(now - glint.listenSince)}</span>{/if}
-        <Icon name={recorder.active ? 'pause' : 'stop'} size={13} />
-      {:else if glint.listen === 'connecting'}
-        <Icon name="mic" size={15} /> …
-      {:else if recorder.active}
-        <Icon name="play" size={14} /> Resume
-      {:else if recorder.finishing}
-        <Icon name="mic" size={15} /> Saving…
-      {:else}
-        <Icon name="mic" size={15} /> Start session
-      {/if}
-    </button>
+    {#if recorder.active}
+      <!-- Mic: its own button, separate from the session. Off stops your mic and the call audio
+           (so listening time isn't charged); the session keeps running until End. -->
+      <button
+        class="btn listen"
+        class:live
+        class:off={!live && glint.listen !== 'connecting'}
+        class:connecting={glint.listen === 'connecting' || glint.listen === 'reconnecting'}
+        onclick={() => glint.toggleListen()}
+        title="{live ? 'Turn the mic off: stops your mic and the call audio, so listening time is not charged. The session keeps running' : 'Turn the mic back on'} ({keys('listen')})"
+        aria-pressed={live}
+      >
+        {#if live}
+          <span class="meters" aria-hidden="true">
+            <i style:transform="scaleY({0.15 + glint.levels.them * 0.85})" class="them"></i>
+            <i style:transform="scaleY({0.15 + glint.levels.you * 0.85})"></i>
+          </span>
+          <Icon name="mic" size={14} />
+        {:else if glint.listen === 'connecting'}
+          <Icon name="mic" size={15} /> …
+        {:else}
+          <Icon name="mic-off" size={15} /><span class="label">Mic off</span>
+        {/if}
+      </button>
+    {:else}
+      <button
+        class="btn listen"
+        onclick={() => glint.toggleListen()}
+        disabled={recorder.finishing}
+        title="Start a session: Glint records it and turns the mic on ({keys('listen')})"
+      >
+        <Icon name="play" size={14} /><span class="label">{recorder.finishing ? 'Saving…' : 'Start session'}</span>
+      </button>
+    {/if}
 
-    <button class="btn primary" onclick={() => glint.ask('answer')} title="Answer now: conversation + screen">
-      <Icon name="bolt" size={15} /> Answer
-      <Keys accel={settings.bindings.answer} />
+    <button class="btn primary" onclick={() => glint.ask('answer')} title="Answer now: conversation + screen ({keys('answer')})">
+      <Icon name="bolt" size={15} /><span class="label">Answer</span>
+      <span class="keys-hint"><Keys accel={settings.bindings.answer} /></span>
     </button>
 
     <button class="btn" onclick={() => glint.ask('screen')} title="Solve what's on screen ({keys('screen')})">
-      <Icon name="screen" size={15} /> Screen
+      <Icon name="screen" size={15} /><span class="label">Screen</span>
     </button>
 
     <button class="btn icon" onclick={() => glint.startTyping()} title="Type a question ({keys('type')})">
@@ -163,7 +194,7 @@
 
     <button class="balance" class:low={glint.balanceNow(now) < 600} onclick={() => glint.buy()} title="Time left. Click to add hours.">
       <Icon name="clock" size={13} />
-      {formatLeft(glint.balanceNow(now))}
+      <span class="label">{formatLeft(glint.balanceNow(now))}</span>
     </button>
     <button
       class="btn icon"
@@ -361,9 +392,25 @@
   .listen.connecting {
     color: var(--muted);
   }
-  .time {
-    font-variant-numeric: tabular-nums;
-    min-width: 30px;
+  .listen.off {
+    color: var(--accent);
+  }
+  /* Compact levels, picked by measuring (see fitBar): labels drop step by step so every button,
+     the ⋮ menu included, stays inside the bar instead of being cut off at the window's edge. */
+  .bar:global(.c1) .keys-hint,
+  .bar:global(.c1) .chip-text {
+    display: none;
+  }
+  .bar:global(.c2) .label {
+    display: none;
+  }
+  .bar:global(.c2) .btn {
+    padding: 0 9px;
+  }
+  .bar:global(.c3) .rec .state,
+  .bar:global(.c3) .rec .end,
+  .bar:global(.c3) .balance .label {
+    display: none;
   }
   .meters {
     display: inline-flex;
