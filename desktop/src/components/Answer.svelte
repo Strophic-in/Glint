@@ -189,7 +189,7 @@
     color: var(--text);
   }
   .body {
-    max-height: var(--answer-h, 420px);
+    max-height: var(--panel-h, 420px);
     padding-right: 4px;
   }
   .caret {

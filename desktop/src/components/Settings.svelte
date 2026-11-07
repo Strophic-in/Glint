@@ -348,7 +348,7 @@
     color: var(--text);
   }
   .body {
-    max-height: 520px;
+    max-height: max(260px, var(--panel-h, 520px));
     padding: 6px 16px 16px;
   }
   .group {

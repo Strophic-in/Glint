@@ -65,7 +65,7 @@
     user-select: text;
   }
   .lines.full {
-    max-height: 180px;
+    max-height: min(180px, calc(var(--panel-h, 420px) * 0.45));
   }
   p {
     margin: 0 0 2px;

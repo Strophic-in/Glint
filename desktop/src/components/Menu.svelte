@@ -51,8 +51,8 @@
       <div class="id">
         <div class="name">{glint.user?.name || glint.user?.email}</div>
         <div class="sub">{glint.user?.email}</div>
+        <div class="left" class:low={glint.balanceNow(now) < 600}>{formatLeft(glint.balanceNow(now))} left</div>
       </div>
-      <span class="left" class:low={glint.balanceNow(now) < 600}>{formatLeft(glint.balanceNow(now))} left</span>
     </div>
 
     <button class="item" onclick={() => run(() => ipc.openUrl(`${glint.webUrl}/dashboard`))}>
@@ -118,7 +118,12 @@
 </div>
 
 <style>
+  /* Drops down over whatever is below it, so opening it never pushes a panel off the screen. */
   .wrap {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    z-index: 20;
     display: flex;
     justify-content: flex-end;
     margin-top: 6px;
@@ -169,6 +174,7 @@
     color: var(--muted);
   }
   .left {
+    margin-top: 3px;
     font-size: 11px;
     font-weight: 600;
     color: var(--muted);

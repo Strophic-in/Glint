@@ -28,6 +28,8 @@
   const showTips = $derived(!settings.tipsSeen && !glint.answer && !showCaptions);
   const showAsk = $derived(glint.typing || !!glint.answer);
   const showPanel = $derived(showTips || showCaptions || glint.hint || !!glint.answer || showAsk);
+  /** Something below the bar that the bottom-edge drag can make taller or shorter. */
+  const hasPanel = $derived(ready && (glint.view !== 'main' || showPanel));
 
   // Corner grip: live size while dragging, saved to settings when the button is released.
   let dragSize = $state<{ w: number; h: number } | null>(null);
@@ -64,13 +66,29 @@
   // serialized across windows on every keystroke.
   const codeSettings = () => ({ opacity: settings.opacity, zoom: settings.zoom, protected: settings.protected });
 
+  // Panels never grow past the bottom of the screen: the room below the bar, in CSS px.
+  let room = $state(window.screen.availHeight);
+  function measureRoom() {
+    const top = Math.max(0, window.screenY - ((window.screen as any).availTop ?? 0));
+    room = Math.floor((window.screen.availHeight - top) / settings.zoom) - 150;
+  }
+  const panelHeight = $derived(Math.max(SIZE.minAnswer, Math.min(answerHeight, room)));
+  // Opening/closing the menu doesn't change the column's size, so refit explicitly.
+  $effect(() => {
+    void glint.menuOpen;
+    requestAnimationFrame(fit);
+  });
+
   // Fit the native window to the content (bar or bubble) so transparent areas never block clicks.
   // The webview is zoomed, so CSS pixels × zoom = window pixels.
   function fit() {
     if (!root) return;
     const r = root.getBoundingClientRect();
+    let h = r.height;
+    const menu = root.querySelector('.menu');
+    if (menu) h = Math.max(h, menu.getBoundingClientRect().bottom - r.top + 12);
     const z = settings.zoom;
-    ipc.resize(Math.ceil(r.width * z), Math.ceil(r.height * z));
+    ipc.resize(Math.ceil(r.width * z), Math.ceil(h * z));
   }
 
   // Which edge is being dragged: the right edge changes the width, the bottom edge the answer
@@ -89,6 +107,7 @@
   const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, Math.round(v)));
 
   onMount(() => {
+    measureRoom();
     glint.init();
     updates.start();
     glint.onAnswerDone = (a) => recorder.record(a);
@@ -226,15 +245,21 @@
   bind:this={root}
   class:collapsed={glint.collapsed}
   style:--answer-h={`${answerHeight}px`}
-  onpointerenter={() => (hovering = true)}
+  style:--panel-h={`${panelHeight}px`}
+  onpointerenter={() => {
+    hovering = true;
+    measureRoom();
+  }}
   onpointerleave={() => (hovering = false)}
 >
   {#if glint.collapsed}
     <Bubble />
   {:else}
     <div class="col" style:width={`${width}px`}>
-      <Bar />
-      {#if glint.menuOpen && ready}<Menu />{/if}
+      <div class="bar-wrap">
+        <Bar />
+        {#if glint.menuOpen && ready}<Menu />{/if}
+      </div>
       {#if glint.shortcutsOpen}<ShortcutsOverlay />{/if}
       {#if ready && glint.view === 'main' && updates.showBanner}<UpdateBanner />{/if}
 
@@ -264,7 +289,14 @@
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="edge edge-r" class:active={!!dragSize && resizeMode === 'x'} onpointerdown={(e) => startResize(e, 'x')}></div>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
-      <div class="edge edge-b" class:active={!!dragSize && resizeMode === 'y'} onpointerdown={(e) => startResize(e, 'y')}></div>
+      {#if hasPanel}
+        <div
+          class="edge edge-b"
+          class:active={!!dragSize && resizeMode === 'y'}
+          onpointerdown={(e) => startResize(e, 'y')}
+          title="Drag to make Glint taller or shorter"
+        ><span class="handle"></span></div>
+      {/if}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div
         class="grip"
@@ -286,7 +318,7 @@
     align-items: flex-start;
     gap: 8px;
     width: max-content;
-    padding: 2px 0 10px;
+    padding: 2px 0 14px;
   }
   main.collapsed {
     display: inline-block;
@@ -359,9 +391,29 @@
   .edge-b {
     left: 12px;
     right: 20px;
-    bottom: -10px;
-    height: 9px;
+    bottom: -14px;
+    height: 13px;
     cursor: ns-resize;
+  }
+  .handle {
+    position: absolute;
+    left: 50%;
+    bottom: 2px;
+    width: 44px;
+    height: 4px;
+    margin-left: -22px;
+    border-radius: 2px;
+    background: var(--muted);
+    opacity: 0.45;
+    transition: opacity 0.15s;
+  }
+  .edge-b:hover .handle,
+  .edge-b.active .handle {
+    opacity: 0;
+  }
+  .bar-wrap {
+    position: relative;
+    z-index: 10;
   }
   .edge-b::after {
     left: 0;
@@ -373,7 +425,7 @@
     position: absolute;
     z-index: 6;
     right: 0;
-    bottom: -10px;
+    bottom: -14px;
     width: 18px;
     height: 18px;
     cursor: nwse-resize;

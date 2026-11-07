@@ -311,8 +311,13 @@
     margin-left: 4px;
     letter-spacing: 0.2px;
   }
-  .grow {
-    flex: 1;
+  /* Buttons keep their size, so a too-narrow bar overflows (which fitBar detects and fixes by
+     dropping labels) instead of silently squashing the menu and hide buttons at the right edge. */
+  .bar > :global(*) {
+    flex-shrink: 0;
+  }
+  .bar > .grow {
+    flex: 1 1 0;
     align-self: stretch;
     min-width: 8px;
   }

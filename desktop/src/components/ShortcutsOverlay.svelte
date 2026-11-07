@@ -67,7 +67,7 @@
     list-style: none;
     margin: 0;
     padding: 0;
-    max-height: 260px;
+    max-height: min(260px, var(--panel-h, 260px));
     display: grid;
     gap: 5px;
   }

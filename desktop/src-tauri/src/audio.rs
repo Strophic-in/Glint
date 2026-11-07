@@ -10,7 +10,7 @@ use std::borrow::Cow;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc as std_mpsc, Arc};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc::UnboundedSender;
 
 pub const RATE: u32 = 24_000;
@@ -177,16 +177,71 @@ where
 {
     let mut proc = Processor::new(src, config.sample_rate, config.channels as usize, tx.clone());
     let warn_tx = tx;
+    let mut errors = StreamErrors::default();
     device
         .build_input_stream::<T, _, _>(
             config,
             move |data: &[T], _| proc.push(data),
             move |e| {
-                let _ = warn_tx.send(AudioEvent::Warning(src, e.to_string()));
+                if let Some(message) = errors.notice(src, &e) {
+                    let _ = warn_tx.send(AudioEvent::Warning(src, message));
+                }
             },
             None,
         )
         .map_err(|e| e.to_string())
+}
+
+/// Turns cpal's stream errors into the few notices worth showing. WASAPI reports every dropped
+/// buffer as an "underrun or overrun" (Xrun): on loopback that happens whenever the call's sound
+/// starts or stops, costs a few milliseconds and doesn't hurt transcription, so a single one is
+/// never shown. Only a sustained burst (the audio really breaking up) or a lost device is, and at
+/// most one notice per source every 30 s.
+#[derive(Default)]
+struct StreamErrors {
+    xruns: VecDeque<Instant>,
+    last_notice: Option<Instant>,
+}
+
+impl StreamErrors {
+    const BURST: usize = 40;
+    const WINDOW: Duration = Duration::from_secs(10);
+    const QUIET: Duration = Duration::from_secs(30);
+
+    fn notice(&mut self, src: Src, e: &cpal::Error) -> Option<String> {
+        let side = match src {
+            Src::You => "your microphone",
+            Src::Them => "the call audio",
+        };
+        let message = match e.kind() {
+            cpal::ErrorKind::Xrun => {
+                let now = Instant::now();
+                self.xruns.push_back(now);
+                while self.xruns.front().is_some_and(|t| now.duration_since(*t) > Self::WINDOW) {
+                    self.xruns.pop_front();
+                }
+                if self.xruns.len() < Self::BURST {
+                    return None;
+                }
+                self.xruns.clear();
+                format!("Audio from {side} is breaking up, so some words may be missed. Closing heavy apps usually fixes it.")
+            }
+            // The default device changed and the stream followed it: nothing to tell the user.
+            cpal::ErrorKind::DeviceChanged => return None,
+            cpal::ErrorKind::DeviceNotAvailable => {
+                format!("Lost {side}: the device was disconnected. Pick another one in Settings → Audio.")
+            }
+            cpal::ErrorKind::PermissionDenied => {
+                format!("Windows blocked access to {side}. Allow it in Windows Settings → Privacy → Microphone.")
+            }
+            _ => format!("Problem with {side}: {e}"),
+        };
+        if self.last_notice.is_some_and(|t| t.elapsed() < Self::QUIET) {
+            return None;
+        }
+        self.last_notice = Some(Instant::now());
+        Some(message)
+    }
 }
 
 struct Processor {

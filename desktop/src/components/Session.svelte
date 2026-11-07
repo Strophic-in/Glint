@@ -195,7 +195,7 @@
     color: var(--text);
   }
   .body {
-    max-height: 560px;
+    max-height: max(260px, var(--panel-h, 560px));
     padding: 14px 16px 16px;
     display: grid;
     gap: 14px;
