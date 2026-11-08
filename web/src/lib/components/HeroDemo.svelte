@@ -37,11 +37,51 @@
   const said = $derived(SAY.slice(0, Math.round(ramp(T.say[0], T.say[1]) * SAY.length)));
   const shownPoints = $derived(Math.round(ramp(T.points[0], T.points[1]) * POINTS.length));
   const wipe = $derived(ramp(T.wipe[0], T.wipe[1]));
+
+  // Once the wipe has arrived, the divider is a before/after slider: drag it (or use the arrow
+  // keys) to compare what you see with what the interviewer sees. Scrolling back before the wipe
+  // hands control back to the scroll.
+  let screenEl: HTMLDivElement | undefined = $state();
+  let manual = $state<number | null>(null); // 0..1 from the left edge
+  let dragging = $state(false);
+  const split = $derived(manual ?? 1 - wipe * 0.5);
+  const canSlide = $derived(wipe > 0.02);
+  $effect(() => {
+    if (!canSlide) manual = null;
+  });
+  const clampSplit = (v: number) => Math.min(0.98, Math.max(0.02, v));
+  function slideTo(clientX: number) {
+    if (!screenEl) return;
+    const r = screenEl.getBoundingClientRect();
+    manual = clampSplit((clientX - r.left) / r.width);
+  }
+  function onSlideDown(e: PointerEvent) {
+    if (!canSlide || e.button !== 0) return;
+    e.preventDefault();
+    dragging = true;
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    slideTo(e.clientX);
+  }
+  function onSlideMove(e: PointerEvent) {
+    if (dragging) slideTo(e.clientX);
+  }
+  function onSlideUp() {
+    dragging = false;
+  }
+  function onSlideKey(e: KeyboardEvent) {
+    const step = e.shiftKey ? 0.1 : 0.03;
+    if (e.key === 'ArrowLeft') manual = clampSplit(split - step);
+    else if (e.key === 'ArrowRight') manual = clampSplit(split + step);
+    else if (e.key === 'Home') manual = 0.02;
+    else if (e.key === 'End') manual = 0.98;
+    else return;
+    e.preventDefault();
+  }
   const clock = $derived(724 + Math.round(p * 95));
 
   const status = $derived(
     wipe > 0.02
-      ? 'Right side: the shared screen. Glint isn’t in it.'
+      ? 'Right side: the shared screen. Glint isn’t in it. Drag the slider to compare.'
       : answered
         ? 'Answered before you had to think about it.'
         : thinking
@@ -115,12 +155,12 @@
       <p class="status" aria-live="polite"><span class="pulse" class:on={p > T.speak[0] && wipe < 0.02}></span>{status}</p>
     </div>
 
-    <div class="screen" aria-hidden="true">
-      <span class="sample">Sample call · live demo</span>
-      <div class="plane back">{@render call(true)}</div>
+    <div class="screen" bind:this={screenEl}>
+      <span class="sample" aria-hidden="true">Sample call · live demo</span>
+      <div class="plane back" aria-hidden="true">{@render call(true)}</div>
 
       <!-- The Glint overlay, on its own plane above the call. -->
-      <div class="plane overlay">
+      <div class="plane overlay" aria-hidden="true">
         <div class="g-bar">
           <span class="spark" class:busy={thinking}></span>
           <span class="chip">Interview · Acme</span>
@@ -157,15 +197,37 @@
       </div>
 
       <!-- Foreground: what makes it safe, nearest to the viewer. -->
-      <div class="plane fore">
+      <div class="plane fore" aria-hidden="true">
         <span class="pill">Never takes focus</span>
         <span class="pill hide">Hidden from screen share</span>
       </div>
 
       <!-- The peak: the shared screen, wiping in from the right. No overlay on it. -->
-      <div class="plane shared" style:clip-path="inset(0 0 0 {100 - wipe * 50}%)">{@render call(false)}</div>
-      <div class="divider" style:left="{100 - wipe * 50}%" class:on={wipe > 0.01}>
+      <div class="plane shared" aria-hidden="true" style:clip-path="inset(0 0 0 {split * 100}%)">{@render call(false)}</div>
+      <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
+      <div
+        class="divider"
+        class:on={wipe > 0.01}
+        class:live={canSlide}
+        class:dragging
+        style:left="{split * 100}%"
+        role="slider"
+        tabindex={canSlide ? 0 : -1}
+        aria-label="Compare what you see with what the interviewer sees"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={Math.round(split * 100)}
+        aria-valuetext="{Math.round(split * 100)}% your view"
+        onpointerdown={onSlideDown}
+        onpointermove={onSlideMove}
+        onpointerup={onSlideUp}
+        onpointercancel={onSlideUp}
+        onkeydown={onSlideKey}
+      >
         <span class="tag l">You see</span><span class="tag r">They see</span>
+        <span class="knob" aria-hidden="true"
+          ><svg viewBox="0 0 24 24"><path d="M9 7l-5 5 5 5M15 7l5 5-5 5" /></svg></span
+        >
       </div>
     </div>
   </div>
@@ -593,6 +655,61 @@
   }
   .divider.on {
     opacity: 1;
+  }
+  /* A wide invisible grab area around the 2 px line. */
+  .divider::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -14px;
+    right: -14px;
+  }
+  .divider.live {
+    cursor: ew-resize;
+    touch-action: none;
+  }
+  .divider.live:focus-visible {
+    outline: none;
+  }
+  .divider.live:focus-visible .knob {
+    outline: 2px solid #fff;
+    outline-offset: 3px;
+  }
+  .knob {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 38px;
+    height: 38px;
+    margin: -19px 0 0 -19px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    background: var(--accent);
+    color: var(--accent-ink);
+    box-shadow: 0 6px 18px -4px rgba(0, 0, 0, 0.7);
+    opacity: 0;
+    transform: scale(0.6);
+    transition:
+      opacity 0.2s,
+      transform 0.2s;
+  }
+  .divider.live .knob {
+    opacity: 1;
+    transform: scale(1);
+  }
+  .divider.dragging .knob {
+    transform: scale(1.1);
+  }
+  .knob svg {
+    width: 20px;
+    height: 20px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 2.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
   }
   .tag {
     position: absolute;
