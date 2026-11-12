@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import WebSocket from 'ws';
 import { assertOpen, authenticate } from './auth.js';
 import { aiConfigured, config } from './config.js';
-import { deduct, effectiveBalance, logUsage, sessionRef, type SessionRef, type UserRow } from './db.js';
+import { checkTrialDevice, deduct, deviceHash, effectiveBalance, logUsage, sessionRef, type SessionRef, type UserRow } from './db.js';
 import { claimLive, releaseLive, type CloseReason, type LiveHandle } from './live-registry.js';
 import { MockTranscriber } from './mock.js';
 import { sttCostMicros } from './pricing.js';
@@ -364,6 +364,7 @@ export async function listenRoutes(app: FastifyInstance) {
         assertOpen(user);
         if (!aiConfigured()) throw new HttpError(503, 'not_configured', 'AI is not configured on the server.');
         (req as any).user = user;
+        await checkTrialDevice(user.id, deviceHash(req.headers['x-glint-device']));
         (req as any).balance = await effectiveBalance(user.id);
         const q = (req.query as Record<string, unknown> | undefined) ?? {};
         (req as any).langs = parseLangs(q.lang);

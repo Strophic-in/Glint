@@ -100,6 +100,15 @@ export type AdminUserDetail = {
   orders: (OrderRow & { payment_id: string | null; paid_at: number | null })[];
   credits: { seconds: number; reason: string; note: string | null; created_at: number }[];
   sessions: { kind: string; created_at: number; last_used_at: number; user_agent: string | null }[];
+  /** PCs this account used the app on (hashed id prefix), other accounts seen there, and the
+   *  account holding that PC's free trial. */
+  devices?: {
+    device: string;
+    first_seen: number;
+    last_seen: number;
+    other_accounts: { id: string; email: string }[];
+    trial_user_id: string | null;
+  }[];
 };
 
 export type AdminOrder = OrderRow & { payment_id: string | null; paid_at: number | null; email: string; user_id: string };

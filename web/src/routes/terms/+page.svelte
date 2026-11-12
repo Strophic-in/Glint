@@ -63,6 +63,11 @@
     </li>
     <li>Prices are in Indian Rupees and include applicable GST. Payments are processed by Cashfree Payments.</li>
     <li>Hours are non-transferable and have no cash value except as described in our Refund Policy.</li>
+    <li>
+      The free trial is one per person and one per PC. On a PC whose trial has already been used by another
+      account, an account with only free minutes must buy hours to use the app. Accounts that have bought hours
+      are not affected.
+    </li>
   </ul>
 
   <h2>6. Refunds</h2>

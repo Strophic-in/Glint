@@ -244,6 +244,40 @@
     </section>
 
     <section class="card">
+      <h3>PCs used</h3>
+      <p class="muted note">
+        One free trial per PC: the first free account to use Glint on a PC holds its trial; other free accounts
+        there must buy hours. Accounts with any purchase, coupon or grant are never limited.
+      </p>
+      <div class="table-wrap">
+        <table class="table">
+          <thead><tr><th>PC</th><th>First used</th><th>Last used</th><th>Free trial</th><th>Other accounts on this PC</th></tr></thead>
+          <tbody>
+            {#each d.devices ?? [] as dv}
+              <tr>
+                <td class="mono">{dv.device}…</td>
+                <td>{formatDateTime(dv.first_seen)}</td>
+                <td>{formatDateTime(dv.last_seen)}</td>
+                <td>
+                  {#if !dv.trial_user_id}<span class="muted">Not claimed</span>
+                  {:else if dv.trial_user_id === d.user.id}<span class="badge badge-ok">This account</span>
+                  {:else}<span class="badge">Another account</span>{/if}
+                </td>
+                <td>
+                  {#if dv.other_accounts.length}
+                    {#each dv.other_accounts as o, i}{#if i > 0}, {/if}{o.email}{/each}
+                  {:else}<span class="muted">None</span>{/if}
+                </td>
+              </tr>
+            {:else}
+              <tr><td colspan="5" class="muted">No PCs recorded yet (app 0.3.4 or later reports them).</td></tr>
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card">
       <h3>Signed-in devices</h3>
       <div class="table-wrap">
         <table class="table">

@@ -94,6 +94,11 @@
     sessions. We need this to meter your balance accurately and to bill you correctly. We never store what was
     said or answered.
   </p>
+  <p><b>PC identifier.</b>
+    The Windows app sends a one-way hash (SHA-256) of your PC's Windows installation ID with each request. We
+    can't turn it back into the original ID. We use it only to allow one free trial per PC and to see which PCs an
+    account has used, and we keep it for as long as we keep the free-trial record.
+  </p>
   <p><b>Sign-in sessions and devices.</b>
     For each browser or device you sign in on: a session token stored only in hashed (one-way encrypted) form,
     whether it is the website or the app, a short browser or device description (user agent), and when the session

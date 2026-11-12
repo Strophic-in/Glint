@@ -342,8 +342,13 @@ class Glint {
       this.levels = { you: 0, them: 0 };
     }
     if (e.message) {
-      const out = /out of time/i.test(e.message);
-      this.notify({ kind: out ? 'balance' : 'warn', message: e.message, action: out ? 'buy' : undefined }, out ? 0 : 9000);
+      // Out of time, or this PC's free trial was already used by another account: offer to buy.
+      const buy = /out of time|buy hours/i.test(e.message);
+      const update = /update glint/i.test(e.message);
+      this.notify(
+        { kind: buy ? 'balance' : 'warn', message: e.message, action: buy ? 'buy' : update ? 'settings' : undefined },
+        buy || update ? 0 : 9000,
+      );
     }
   }
 
@@ -518,6 +523,8 @@ class Glint {
     this.answer.status = 'error';
     this.answer.error = e?.message ?? 'Something went wrong.';
     if (e?.error === 'no_balance') this.outOfTime();
+    if (e?.error === 'trial_used') this.notify({ kind: 'balance', message: e.message, action: 'buy' }, 0);
+    if (e?.error === 'update_required') this.notify({ kind: 'warn', message: e.message, action: 'settings' }, 0);
     if (e?.status === 401) this.phase = 'signedOut';
   }
 

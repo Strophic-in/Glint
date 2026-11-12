@@ -199,7 +199,7 @@ export async function adminRoutes(app: FastifyInstance) {
   app.get('/v1/admin/users/:id', async (req) => {
     await requireAdmin(req);
     const user = await targetUser(req);
-    const [usage, orders, credits, sessions, balance, [totals]] = await Promise.all([
+    const [usage, orders, credits, sessions, balance, [totals], devices] = await Promise.all([
       sql`SELECT kind, seconds, started_at, ended_at, model, input_tokens, cached_tokens, output_tokens, audio_ms,
                  service_tier, cost_micros
           FROM usage WHERE user_id = ${user.id} ORDER BY started_at DESC LIMIT 100`,
@@ -224,6 +224,15 @@ export async function adminRoutes(app: FastifyInstance) {
           coalesce(sum(cost_micros) FILTER (WHERE kind = 'answer'), 0)::bigint AS answer_cost_micros,
           (SELECT coalesce(sum(amount_paise), 0) FROM orders WHERE user_id = ${user.id} AND status = 'paid')::bigint AS paid_paise
         FROM usage WHERE user_id = ${user.id}`,
+      // PCs this account used Glint on, the other accounts seen on each, and who holds its free trial.
+      sql`
+        SELECT left(d.device_hash, 10) AS device, d.first_seen, d.last_seen,
+               (SELECT coalesce(json_agg(json_build_object('id', u.id, 'email', u.email) ORDER BY o.first_seen), '[]'::json)
+                  FROM user_devices o JOIN users u ON u.id = o.user_id
+                 WHERE o.device_hash = d.device_hash AND o.user_id <> d.user_id) AS other_accounts,
+               t.user_id AS trial_user_id
+        FROM user_devices d LEFT JOIN device_trials t ON t.device_hash = d.device_hash
+        WHERE d.user_id = ${user.id} ORDER BY d.last_seen DESC`,
     ]);
     return {
       totals,
@@ -243,6 +252,7 @@ export async function adminRoutes(app: FastifyInstance) {
       orders,
       credits,
       sessions,
+      devices,
     };
   });
 

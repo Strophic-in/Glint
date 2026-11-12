@@ -1,3 +1,4 @@
+import { HttpError } from './util.js';
 /**
  * PostgreSQL (VibeDB or any Postgres 14+). Timestamps are epoch milliseconds (bigint), parsed to
  * JS numbers. Schema is created/updated idempotently at boot under an advisory lock.
@@ -167,6 +168,24 @@ ALTER TABLE usage ADD COLUMN IF NOT EXISTS session_id text;
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS session_title text;
 ALTER TABLE usage ADD COLUMN IF NOT EXISTS action text;
 CREATE INDEX IF NOT EXISTS usage_session ON usage(user_id, session_id);
+
+-- v6: one free trial per PC. The app sends a SHA-256 of the Windows machine id; the first free-only
+-- account to use Glint on a PC claims its trial there, and other free-only accounts on that PC must
+-- buy hours. Kept after an account is deleted, so deleting and re-signing up doesn't reset it.
+CREATE TABLE IF NOT EXISTS device_trials (
+  device_hash text PRIMARY KEY,
+  user_id     uuid NOT NULL,
+  created_at  bigint NOT NULL
+);
+-- Which PCs each account has used (admin visibility).
+CREATE TABLE IF NOT EXISTS user_devices (
+  user_id     uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  device_hash text NOT NULL,
+  first_seen  bigint NOT NULL,
+  last_seen   bigint NOT NULL,
+  PRIMARY KEY (user_id, device_hash)
+);
+CREATE INDEX IF NOT EXISTS user_devices_device ON user_devices(device_hash);
 `;
 
 /** Create/upgrade tables. Safe to run on every boot and from several instances at once. */
@@ -329,4 +348,45 @@ export function sessionRef(id: unknown, title: unknown): SessionRef | null {
   if (typeof id !== 'string' || !/^[A-Za-z0-9-]{8,64}$/.test(id)) return null;
   const t = typeof title === 'string' ? title.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80) : '';
   return { id, title: t || null };
+}
+
+/** The app's device id header: a lowercase hex SHA-256, or null if missing or malformed. */
+export function deviceHash(raw: unknown): string | null {
+  const v = Array.isArray(raw) ? raw[0] : raw;
+  return typeof v === 'string' && /^[a-f0-9]{64}$/.test(v) ? v : null;
+}
+
+/** True once an account has time from anything other than the free trial (a purchase, a coupon,
+ *  an admin grant). Those accounts are never limited by the one-trial-per-PC rule. */
+export async function hasPaidTime(userId: string): Promise<boolean> {
+  const [row] = await sql`SELECT 1 FROM credits WHERE user_id = ${userId} AND reason <> 'trial' AND seconds > 0 LIMIT 1`;
+  return !!row;
+}
+
+/**
+ * One free trial per PC. Call before using time (listening, answers). Free-only accounts must come
+ * from an app that sends its device id; the first such account on a PC claims the trial there, and
+ * any other free-only account on the same PC is refused until it buys hours.
+ */
+export async function checkTrialDevice(userId: string, device: string | null): Promise<void> {
+  const now = Date.now();
+  if (device) {
+    await sql`
+      INSERT INTO user_devices (user_id, device_hash, first_seen, last_seen) VALUES (${userId}, ${device}, ${now}, ${now})
+      ON CONFLICT (user_id, device_hash) DO UPDATE SET last_seen = ${now}`;
+  }
+  if (await hasPaidTime(userId)) return;
+  if (!device) {
+    throw new HttpError(426, 'update_required', 'Update Glint to keep using your free minutes (menu → Settings → Check for updates).');
+  }
+  await sql`INSERT INTO device_trials (device_hash, user_id, created_at) VALUES (${device}, ${userId}, ${now})
+            ON CONFLICT (device_hash) DO NOTHING`;
+  const [claim] = await sql<{ user_id: string }[]>`SELECT user_id FROM device_trials WHERE device_hash = ${device}`;
+  if (claim && claim.user_id !== userId) {
+    throw new HttpError(
+      402,
+      'trial_used',
+      "This PC has already used Glint's free trial on another account. Buy hours to use Glint on this account.",
+    );
+  }
 }

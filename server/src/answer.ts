@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { assertOpen, authenticate } from './auth.js';
 import { aiConfigured, config } from './config.js';
-import { deduct, effectiveBalance, logUsage, refund, sessionRef } from './db.js';
+import { checkTrialDevice, deduct, deviceHash, effectiveBalance, logUsage, refund, sessionRef } from './db.js';
 import { isLive } from './live-registry.js';
 import { mockAnswer } from './mock.js';
 import { answerCostMicros } from './pricing.js';
@@ -166,6 +166,7 @@ export async function answerRoutes(app: FastifyInstance) {
     const user = await authenticate(req);
     assertOpen(user);
     perMinute(user.id);
+    await checkTrialDevice(user.id, deviceHash(req.headers['x-glint-device']));
     if (!aiConfigured()) throw new HttpError(503, 'not_configured', 'AI is not configured on the server.');
 
     const b = (req.body ?? {}) as Record<string, any>;

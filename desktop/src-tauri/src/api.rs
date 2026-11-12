@@ -50,8 +50,14 @@ fn setting(name: &str, compiled: Option<&str>, default: &str) -> String {
 
 impl Api {
     pub fn new() -> Self {
+        // Every request says which PC it comes from (hashed, see device.rs): one free trial per PC.
+        let mut headers = reqwest::header::HeaderMap::new();
+        if let Ok(v) = reqwest::header::HeaderValue::from_str(crate::device::id()) {
+            headers.insert("x-glint-device", v);
+        }
         let http = reqwest::Client::builder()
             .user_agent(format!("Glint/{} (Windows)", env!("CARGO_PKG_VERSION")))
+            .default_headers(headers)
             .tcp_nodelay(true)
             .connect_timeout(Duration::from_secs(8))
             .pool_idle_timeout(Duration::from_secs(120))

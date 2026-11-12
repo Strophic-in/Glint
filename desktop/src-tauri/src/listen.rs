@@ -117,6 +117,9 @@ async fn connect(api: &Api, token: &str, path: &str) -> Result<Ws, End> {
     let mut req = api.ws_url(path).into_client_request().map_err(|e| End::Fatal(e.to_string()))?;
     let auth = HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| End::Fatal(e.to_string()))?;
     req.headers_mut().insert("authorization", auth);
+    if let Ok(device) = HeaderValue::from_str(crate::device::id()) {
+        req.headers_mut().insert("x-glint-device", device);
+    }
     match tokio_tungstenite::connect_async_with_config(req, None, true).await {
         Ok((ws, _)) => Ok(ws),
         Err(tokio_tungstenite::tungstenite::Error::Http(resp)) => {

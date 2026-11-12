@@ -2,6 +2,7 @@ mod api;
 mod audio;
 mod auth;
 mod commands;
+mod device;
 mod docs;
 mod listen;
 mod screen;
