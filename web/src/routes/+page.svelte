@@ -164,8 +164,8 @@
       a: 'Windows 10 version 2004 or newer, and Windows 11. The installer is under 5 MB and uses Microsoft Edge WebView2, which is already on most PCs.'
     },
     {
-      q: 'Why does my browser or Windows warn me about the installer?',
-      a: `${BRAND} is new, so Chrome, Edge and Windows SmartScreen haven't seen many downloads of it yet and flag it as uncommon. It's a reputation check, not a detected threat. In Chrome, open Downloads (Ctrl+J) and choose Keep; in Edge choose Keep, then Keep anyway; on the blue "Windows protected your PC" screen click More info, then Run anyway.`
+      q: 'Is it safe to install?',
+      a: `Yes. ${BRAND} is on the Microsoft Store, where Microsoft checks and signs every app before it's listed, and the Store keeps it updated. If you download the installer directly instead, your browser or Windows may flag it as uncommon because it's new: that's a reputation check, not a detected threat.`
     },
     {
       q: 'Does it work with Zoom, Meet and Teams?',
@@ -215,7 +215,7 @@
       <DownloadButton />
       <a class="btn btn-lg" href="/login?next=/dashboard">Start free · {formatDuration(plans.trial_seconds)}</a>
     </div>
-    <p class="fine muted hero-fine">Windows 10 2004+ / 11 · ~5 MB · No card needed</p>
+    <p class="fine muted hero-fine">Windows 10 2004+ / 11 · Microsoft Store · No card needed</p>
   {/snippet}
 </HeroDemo>
 
@@ -372,7 +372,7 @@
       <li class="card">
         <span class="num">1</span>
         <h3>Install & sign in</h3>
-        <p class="muted">Download the 5 MB installer and sign in with Google. You get 20 free minutes.</p>
+        <p class="muted">Get Glint from the Microsoft Store and sign in with Google. You get 20 free minutes.</p>
       </li>
       <li class="card">
         <span class="num">2</span>
@@ -464,7 +464,7 @@
         <DownloadButton />
         <a class="btn btn-lg" href="/#pricing">See pricing</a>
       </div>
-      <p class="fine muted">Windows 10 2004+ / 11 · ~5 MB · Signed in with Google</p>
+      <p class="fine muted">Windows 10 2004+ / 11 · Microsoft Store · Signed in with Google</p>
       <InstallHelp />
     </div>
   </div>

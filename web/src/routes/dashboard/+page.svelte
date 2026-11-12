@@ -233,9 +233,9 @@
       <article class="card get">
         <span class="label">Get the app</span>
         <h2>{BRAND} for Windows</h2>
-        <p class="muted">Windows 10 2004+ / 11 · ~5 MB</p>
+        <p class="muted">Windows 10 2004+ / 11 · Microsoft Store</p>
         <ol>
-          <li>Install and open {BRAND}.</li>
+          <li>Install {BRAND} from the Microsoft Store and open it.</li>
           <li>Click <b>Sign in with Google</b> and approve in your browser.</li>
           <li>Add your company, role and resume from the session chip, then press <kbd>Ctrl</kbd> <kbd>Shift</kbd> <kbd>L</kbd> to start a session. Questions are answered as they come, or press <kbd>Ctrl</kbd> <kbd>Enter</kbd>.</li>
         </ol>

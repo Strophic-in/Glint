@@ -377,7 +377,7 @@ export async function checkTrialDevice(userId: string, device: string | null): P
   }
   if (await hasPaidTime(userId)) return;
   if (!device) {
-    throw new HttpError(426, 'update_required', 'Update Glint to keep using your free minutes (menu → Settings → Check for updates).');
+    throw new HttpError(426, 'update_required', 'Update Glint to keep using your free minutes: from the Microsoft Store, or in Glint go to Settings → Check for updates.');
   }
   await sql`INSERT INTO device_trials (device_hash, user_id, created_at) VALUES (${device}, ${userId}, ${now})
             ON CONFLICT (device_hash) DO NOTHING`;

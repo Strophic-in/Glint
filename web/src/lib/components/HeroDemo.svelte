@@ -247,7 +247,7 @@
     height: 100vh;
     height: 100svh;
     display: grid;
-    grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.25fr);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
     align-items: center;
     gap: clamp(28px, 4vw, 64px);
     padding: 72px max(var(--gutter), calc((100vw - 1240px) / 2)) 24px;

@@ -1,14 +1,16 @@
 <script lang="ts">
-  import { BRAND } from '$lib/config';
+  import { BRAND, DOWNLOAD_URL } from '$lib/config';
 
-  // The installer is new and not code-signed yet, so browsers and SmartScreen flag it as
-  // "uncommon". This explains the warning and how to get past it.
+  // Under the Store button: the direct installer for anyone who can't use the Store. That installer
+  // isn't code-signed yet, so browsers and SmartScreen flag it as "uncommon"; this explains why.
   let { align = 'center' }: { align?: 'center' | 'left' } = $props();
 </script>
 
+{#if DOWNLOAD_URL}
 <details class="help" class:left={align === 'left'}>
-  <summary>Browser or Windows warning? Here's how to install</summary>
+  <summary>Can't use the Microsoft Store? Download the installer</summary>
   <div class="body">
+    <p><a class="direct" href={DOWNLOAD_URL}>Download Glint-Setup.exe</a> (about 5 MB). The Store version updates itself through the Store; this one updates itself from inside Glint.</p>
     <p>
       {BRAND} is new, so Chrome, Edge and Windows haven't seen many downloads of it yet and flag it as uncommon. It's a
       reputation check, not a detected threat.
@@ -20,8 +22,14 @@
     </ul>
   </div>
 </details>
+{/if}
 
 <style>
+  .direct {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: underline;
+  }
   .help {
     margin: 14px auto 0;
     max-width: 520px;
